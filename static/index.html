@@ -105,6 +105,13 @@
       </template>
     </div>
 
+    <!-- Show/hide excluded -->
+    <button @click="metaShowExcluded = !metaShowExcluded"
+      :class="metaShowExcluded ? 'bg-white border-gray-300 text-gray-500' : 'bg-gray-100 border-gray-400 text-gray-700 font-semibold'"
+      class="flex items-center gap-1 px-3 py-1 border rounded text-xs transition">
+      <span x-text="metaShowExcluded ? '👁 Esclusi visibili' : '🚫 Esclusi nascosti'"></span>
+    </button>
+
     <!-- Name search -->
     <div class="relative ml-auto">
       <input x-model="metaSearch" type="text" placeholder="Cerca mazzo…"
@@ -520,6 +527,7 @@ function app() {
     metaFilter: 'Tutti',
     metaSearch: '',
     metaColorFilter: [],
+    metaShowExcluded: true,
     customDeckModal: { open: false, name: '', category: 'Aggro' },
 
     // My Decks
@@ -637,6 +645,7 @@ function app() {
       if (this.metaColorFilter.length > 0) {
         decks = decks.filter(d => this.metaColorFilter.some(c => (d.colors || []).includes(c)));
       }
+      if (!this.metaShowExcluded) decks = decks.filter(d => d.included);
       return decks;
     },
 
