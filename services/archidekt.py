@@ -63,8 +63,8 @@ async def sync_deck(deck_id: int) -> dict:
         return {"main_deck": [], "sideboard": []}
 
     data = r.json()
-    main_deck: list[dict] = []
-    sideboard: list[dict] = []
+    main_map: dict[str, dict] = {}
+    side_map: dict[str, dict] = {}
 
     for card_entry in data.get("cards", []):
         try:
@@ -76,15 +76,17 @@ async def sync_deck(deck_id: int) -> dict:
             raw_cats = card_entry.get("categories", [])
             categories = [c.get("name", "") if isinstance(c, dict) else str(c) for c in raw_cats]
 
-            entry = {"name": name, "quantity": qty, "types": types}
-            if "Sideboard" in categories:
-                sideboard.append(entry)
+            non_side_cats = [c for c in categories if c and c != "Sideboard"]
+            is_sideboard = "Sideboard" in categories and not non_side_cats
+            target = side_map if is_sideboard else main_map
+            if name in target:
+                target[name]["quantity"] += qty
             else:
-                main_deck.append(entry)
+                target[name] = {"name": name, "quantity": qty, "types": types}
         except (KeyError, TypeError):
             continue
 
-    return {"main_deck": main_deck, "sideboard": sideboard}
+    return {"main_deck": list(main_map.values()), "sideboard": list(side_map.values())}
 
 
 async def sync_all_decks(existing_decks: list[dict]) -> list[dict]:
