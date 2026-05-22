@@ -219,10 +219,9 @@
               class="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition shadow-sm">
               Editor Side
             </button>
-            <a :href="deck.archidekt_url" target="_blank" @click.stop
-               x-show="deck.archidekt_url"
-               class="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-lg text-sm transition"
-               title="Apri su Archidekt">↗</a>
+            <button @click.stop="openDeckList(deck)"
+              class="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm transition"
+              title="Vedi lista">📋</button>
             <button @click.stop="syncSingleDeck(deck)" :disabled="!deck.archidekt_id"
               class="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm disabled:opacity-30 transition"
               title="Sync singolo">⟳</button>
@@ -279,36 +278,52 @@
         </tr>
       </thead>
       <tbody>
-        <!-- MAIN DECK section -->
+        <!-- MAIN DECK section header with sideboard size counters -->
         <tr class="bg-gray-200">
           <td class="sticky left-0 z-10 bg-gray-200 px-2 py-1 font-bold text-xs uppercase tracking-wide" colspan="2">Main Deck — OUT</td>
           <template x-for="deck in includedMetaDecks()">
             <td class="bg-gray-200 px-1 py-0.5 text-center">
-              <span class="text-xs font-mono text-gray-500" :title="'Side size: ' + sideboardSize(deck.id)"
+              <span class="text-xs font-mono" :title="'Side size: ' + sideboardSize(deck.id)"
                     :class="sideboardSize(deck.id) === 15 ? 'text-green-600 font-bold' : sideboardSize(deck.id) > 15 ? 'text-red-600 font-bold' : 'text-gray-400'"
                     x-text="sideboardSize(deck.id) + '/15'">
               </span>
             </td>
           </template>
         </tr>
-        <template x-for="card in sideboardPlan.deck.main_deck" :key="card.name">
-          <tr :class="hasStaleOut(card.name) ? 'bg-red-50' : 'hover:bg-yellow-50'" class="transition">
-            <td class="sticky left-0 z-10 bg-inherit px-2 py-1 font-medium whitespace-nowrap" x-text="card.name"></td>
-            <td class="sticky left-[180px] z-10 bg-inherit px-2 py-0.5 text-center font-mono" x-text="card.quantity"></td>
-            <template x-for="metaDeck in includedMetaDecks()" :key="metaDeck.id">
-              <td class="px-1 py-0.5 text-center"
-                  x-data="cellData('out', card.name, metaDeck.id)"
-                  @click="startEdit()"
-                  :class="editing ? 'bg-yellow-100' : ''">
-                <span x-show="!editing" class="cursor-pointer text-red-700 font-mono font-semibold"
-                      x-text="val > 0 ? val : ''" :title="'OUT: ' + val + ' ' + card.name"></span>
-                <input x-show="editing" x-model.number="val" type="number" min="0" max="4"
-                       class="cell-input" x-ref="inp"
-                       @blur="commit()" @keydown.enter="commit()" @keydown.escape="cancel()"
-                       @click.stop />
-              </td>
+
+        <!-- Main deck rows grouped by type section -->
+        <template x-for="section in groupMainDeckBySections(sideboardPlan.deck.main_deck || [])" :key="section.label">
+          <template x-if="section.cards.length > 0">
+            <!-- Type sub-header -->
+            <template x-for="_ in [1]" :key="section.label + '_hdr'">
+              <tr class="bg-gray-50">
+                <td class="sticky left-0 z-10 bg-gray-50 px-2 py-0.5 text-xs font-semibold text-gray-400 uppercase tracking-wide" colspan="2" x-text="section.label"></td>
+                <template x-for="deck in includedMetaDecks()">
+                  <td class="bg-gray-50"></td>
+                </template>
+              </tr>
             </template>
-          </tr>
+            <!-- Cards in this section -->
+            <template x-for="card in section.cards" :key="card.name">
+              <tr :class="hasStaleOut(card.name) ? 'bg-red-50' : 'hover:bg-yellow-50'" class="transition">
+                <td class="sticky left-0 z-10 bg-inherit px-2 py-1 font-medium whitespace-nowrap" x-text="card.name"></td>
+                <td class="sticky left-[180px] z-10 bg-inherit px-2 py-0.5 text-center font-mono" x-text="card.quantity"></td>
+                <template x-for="metaDeck in includedMetaDecks()" :key="metaDeck.id">
+                  <td class="px-1 py-0.5 text-center"
+                      x-data="cellData('out', card.name, metaDeck.id)"
+                      @click="startEdit()"
+                      :class="editing ? 'bg-yellow-100' : ''">
+                    <span x-show="!editing" class="cursor-pointer text-red-700 font-mono font-semibold"
+                          x-text="val > 0 ? val : ''" :title="'OUT: ' + val + ' ' + card.name"></span>
+                    <input x-show="editing" x-model.number="val" type="number" min="0" max="4"
+                           class="cell-input" x-ref="inp"
+                           @blur="commit()" @keydown.enter="commit()" @keydown.escape="cancel()"
+                           @click.stop />
+                  </td>
+                </template>
+              </tr>
+            </template>
+          </template>
         </template>
 
         <!-- SIDEBOARD section -->
@@ -377,6 +392,59 @@
   </div>
 </div>
 
+<!-- Deck list modal -->
+<div x-show="deckListModal.open" class="fixed inset-0 bg-black/60 flex items-start justify-center z-50 no-print pt-10 pb-6 px-4" @click.self="deckListModal.open=false">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col overflow-hidden">
+    <!-- Header -->
+    <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-100 shrink-0">
+      <div class="flex-1">
+        <h2 class="font-bold text-base" x-text="deckListModal.name"></h2>
+        <div class="flex gap-1 mt-0.5" x-show="(deckListModal.colors||[]).length">
+          <template x-for="c in (deckListModal.colors||[])">
+            <span :class="'pip pip-' + c" x-text="c"></span>
+          </template>
+        </div>
+      </div>
+      <a x-show="deckListModal.archidekt_url" :href="deckListModal.archidekt_url" target="_blank"
+         class="text-xs text-indigo-500 hover:underline flex items-center gap-1">Archidekt ↗</a>
+      <button @click="deckListModal.open=false" class="text-gray-400 hover:text-gray-700 text-xl leading-none ml-1">&times;</button>
+    </div>
+
+    <!-- Card list body -->
+    <div class="overflow-y-auto px-4 py-3 space-y-3">
+      <!-- Main deck grouped by type -->
+      <template x-for="section in deckListModal.sections" :key="section.label">
+        <div x-show="section.cards.length > 0">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-xs font-bold uppercase tracking-wide text-gray-400" x-text="section.label"></span>
+            <span class="text-xs text-gray-300" x-text="section.cards.reduce((s,c)=>s+c.quantity,0)"></span>
+          </div>
+          <template x-for="card in section.cards" :key="card.name">
+            <div class="flex justify-between text-xs py-0.5">
+              <span x-text="card.name"></span>
+              <span class="font-mono text-gray-400" x-text="card.quantity"></span>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Sideboard -->
+      <div x-show="deckListModal.sideboard.length > 0">
+        <div class="flex items-center gap-2 mb-1 mt-2 pt-2 border-t border-gray-100">
+          <span class="text-xs font-bold uppercase tracking-wide text-indigo-500">Sideboard</span>
+          <span class="text-xs text-gray-300" x-text="deckListModal.sideboard.reduce((s,c)=>s+c.quantity,0) + '/15'"></span>
+        </div>
+        <template x-for="card in deckListModal.sideboard" :key="card.name">
+          <div class="flex justify-between text-xs py-0.5">
+            <span x-text="card.name"></span>
+            <span class="font-mono text-gray-400" x-text="card.quantity"></span>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Add theoretical card modal -->
 <div x-show="theoreticalModal.open" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print" @click.self="theoreticalModal.open=false">
   <div class="bg-white rounded-lg shadow-xl w-80 p-4">
@@ -411,6 +479,7 @@ function app() {
     myDecks: [],
     myDecksLastSync: null,
     stalePlans: {},
+    deckListModal: { open: false, name: '', colors: [], archidekt_url: '', sections: [], sideboard: [] },
 
     // Editor
     activeDeckId: null,
@@ -450,6 +519,48 @@ function app() {
 
     hasStalePlan(deck) {
       return this.stalePlans[deck.id] || false;
+    },
+
+    // Sort main deck cards: Creature > Instant/Sorcery > Other > Land
+    sortMainDeck(cards) {
+      const ORDER = { 'Creature': 0, 'Instant': 1, 'Sorcery': 1, 'Land': 3 };
+      const rank = (card) => {
+        const types = card.types || [];
+        if (types.includes('Land')) return 3;
+        if (types.includes('Creature')) return 0;
+        if (types.includes('Instant') || types.includes('Sorcery')) return 1;
+        return 2; // Other
+      };
+      return [...cards].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+    },
+
+    groupMainDeckBySections(cards) {
+      const sorted = this.sortMainDeck(cards);
+      const sections = [
+        { label: 'Creature', cards: [] },
+        { label: 'Istant & Sorceries', cards: [] },
+        { label: 'Altro', cards: [] },
+        { label: 'Terre', cards: [] },
+      ];
+      for (const card of sorted) {
+        const types = card.types || [];
+        if (types.includes('Land')) sections[3].cards.push(card);
+        else if (types.includes('Creature')) sections[0].cards.push(card);
+        else if (types.includes('Instant') || types.includes('Sorcery')) sections[1].cards.push(card);
+        else sections[2].cards.push(card);
+      }
+      return sections;
+    },
+
+    openDeckList(deck) {
+      this.deckListModal = {
+        open: true,
+        name: deck.name,
+        colors: deck.colors || [],
+        archidekt_url: deck.archidekt_url || '',
+        sections: this.groupMainDeckBySections(deck.main_deck || []),
+        sideboard: [...(deck.sideboard || [])].sort((a, b) => a.name.localeCompare(b.name)),
+      };
     },
 
     async fetchMeta() {
@@ -578,7 +689,12 @@ function app() {
       if (!this.sideboardPlan) return [];
       const real = (this.sideboardPlan.deck?.sideboard || []).map(c => ({ ...c, theoretical: false }));
       const theoretical = (this.sideboardPlan.theoretical_pool || []).map(c => ({ ...c, theoretical: true }));
-      return [...real, ...theoretical];
+      return [...real, ...theoretical].sort((a, b) => a.name.localeCompare(b.name));
+    },
+
+    sortedMainDeck() {
+      if (!this.sideboardPlan?.deck?.main_deck) return [];
+      return this.sortMainDeck(this.sideboardPlan.deck.main_deck);
     },
 
     getVal(type, cardName, metaDeckId) {

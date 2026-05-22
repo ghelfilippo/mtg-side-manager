@@ -72,13 +72,15 @@ async def sync_deck(deck_id: int) -> dict:
             oracle = card_obj.get("oracleCard", {})
             name = oracle.get("name", "Unknown")
             qty = card_entry.get("quantity", 1)
+            types = oracle.get("types", [])
             raw_cats = card_entry.get("categories", [])
             categories = [c.get("name", "") if isinstance(c, dict) else str(c) for c in raw_cats]
 
+            entry = {"name": name, "quantity": qty, "types": types}
             if "Sideboard" in categories:
-                sideboard.append({"name": name, "quantity": qty})
+                sideboard.append(entry)
             else:
-                main_deck.append({"name": name, "quantity": qty})
+                main_deck.append(entry)
         except (KeyError, TypeError):
             continue
 
