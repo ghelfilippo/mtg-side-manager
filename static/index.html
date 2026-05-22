@@ -123,8 +123,8 @@
         <!-- Image area -->
         <div class="relative h-28 bg-gradient-to-br from-gray-700 to-gray-900 overflow-hidden">
           <img x-show="deck.image_url" :src="deck.image_url" alt=""
-               class="w-full h-full object-cover scale-[1.15]"
-               style="object-position: center 28%;"
+               class="w-full h-full object-cover scale-[1.4]"
+               style="object-position: center 22%;"
                loading="lazy" @error="$event.target.style.display='none'" />
           <div x-show="!deck.image_url" class="absolute inset-0 flex items-center justify-center text-4xl text-gray-600">🃏</div>
           <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
