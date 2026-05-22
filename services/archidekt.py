@@ -61,7 +61,8 @@ async def sync_deck(deck_id: int) -> dict:
             oracle = card_obj.get("oracleCard", {})
             name = oracle.get("name", "Unknown")
             qty = card_entry.get("quantity", 1)
-            categories = [c.get("name", "") for c in card_entry.get("categories", [])]
+            raw_cats = card_entry.get("categories", [])
+            categories = [c.get("name", "") if isinstance(c, dict) else str(c) for c in raw_cats]
 
             if "Sideboard" in categories:
                 sideboard.append({"name": name, "quantity": qty})
