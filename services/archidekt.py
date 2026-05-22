@@ -105,7 +105,7 @@ async def sync_all_decks(existing_decks: list[dict]) -> list[dict]:
             "name": fd["name"],
             "image_url": fd.get("image_url", ""),
             "colors": fd.get("colors", []),
-            "archidekt_url": f"https://archidekt.com/decks/{fd['id']}",
+            "archidekt_url": f"https://archidekt.com/decks/{fd['id']}/{fd['name'].replace(' ', '_')}",
             "last_synced": datetime.now(timezone.utc).isoformat(),
             **cards,
         }

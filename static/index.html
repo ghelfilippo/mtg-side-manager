@@ -53,8 +53,8 @@
 <!-- NAV -->
 <nav class="bg-indigo-700 text-white px-4 py-2 flex items-center gap-4 no-print sticky top-0 z-50 shadow">
   <span class="font-bold text-base tracking-wide">🃏 Sideboard Manager</span>
-  <button @click="view='meta'" :class="view==='meta' ? 'bg-indigo-900' : 'hover:bg-indigo-600'" class="px-3 py-1 rounded text-sm transition">Meta Deck</button>
   <button @click="view='decks'" :class="view==='decks' ? 'bg-indigo-900' : 'hover:bg-indigo-600'" class="px-3 py-1 rounded text-sm transition">I Miei Mazzi</button>
+  <button @click="view='meta'" :class="view==='meta' ? 'bg-indigo-900' : 'hover:bg-indigo-600'" class="px-3 py-1 rounded text-sm transition">Meta Deck</button>
   <template x-if="activeDeckId">
     <button @click="view='editor'" :class="view==='editor' ? 'bg-indigo-900' : 'hover:bg-indigo-600'" class="px-3 py-1 rounded text-sm transition">
       Editor Side <span class="ml-1 bg-indigo-500 rounded px-1" x-text="activeDeckName"></span>
@@ -67,90 +67,94 @@
 </nav>
 
 <!-- ===================== META VIEW ===================== -->
-<div x-show="view==='meta'" class="p-4 no-print">
-  <div class="flex items-center gap-3 mb-4">
-    <h1 class="text-lg font-bold">Meta Deck Pauper</h1>
-    <button @click="fetchMeta()" :disabled="loading" class="btn-primary px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-sm">
-      <span x-show="!loading">⟳ Aggiorna da MTGTOP8</span>
-      <span x-show="loading">Caricamento...</span>
+<div x-show="view==='meta'" class="px-6 pt-6 pb-8 no-print">
+  <!-- Header bar -->
+  <div class="flex flex-wrap items-center gap-3 mb-5">
+    <h1 class="text-xl font-bold text-gray-800">Meta Deck Pauper</h1>
+    <button @click="fetchMeta()" :disabled="loading"
+      class="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium shadow-sm transition">
+      <span :class="loading ? 'animate-spin' : ''" class="inline-block">⟳</span>
+      <span x-text="loading ? 'Aggiornamento...' : 'Aggiorna da MTGGoldfish'"></span>
+    </button>
+    <button @click="customDeckModal = { open: true, name: '', category: 'Aggro' }"
+      class="flex items-center gap-1.5 px-4 py-1.5 bg-white border border-gray-300 rounded-full hover:bg-gray-50 text-sm font-medium transition">
+      + Mazzo custom
     </button>
     <span class="text-xs text-gray-400" x-text="metaLastFetched ? 'Aggiornato: ' + fmtDate(metaLastFetched) : 'Mai sincronizzato'"></span>
   </div>
 
-  <!-- Category tabs -->
-  <div class="flex gap-2 mb-4">
-    <template x-for="cat in ['Aggro','Midrange','Control','Combo','Tutti']">
-      <button @click="metaFilter=cat" :class="metaFilter===cat ? 'bg-indigo-100 border-indigo-400 font-semibold' : 'bg-white border-gray-200 hover:bg-gray-50'" class="px-3 py-1 border rounded text-xs transition" x-text="cat"></button>
+  <!-- Category filter tabs -->
+  <div class="flex gap-2 mb-5">
+    <template x-for="cat in ['Tutti','Aggro','Midrange','Control','Combo']">
+      <button @click="metaFilter=cat"
+        :class="metaFilter===cat ? 'bg-indigo-100 border-indigo-400 font-semibold text-indigo-700' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'"
+        class="px-3 py-1 border rounded text-xs transition" x-text="cat">
+      </button>
     </template>
   </div>
 
-  <div class="overflow-x-auto">
-    <table class="w-full bg-white border border-gray-200 rounded shadow-sm text-xs">
-      <thead>
-        <tr class="bg-gray-100 text-gray-600 uppercase text-xs">
-          <th class="px-3 py-2 text-left">Mazzo</th>
-          <th class="px-3 py-2">Meta %</th>
-          <th class="px-3 py-2">Categoria</th>
-          <th class="px-3 py-2">Includi</th>
-          <th class="px-3 py-2">Decklist</th>
-        </tr>
-      </thead>
-      <tbody>
-        <template x-for="deck in filteredMetaDecks()" :key="deck.id">
-          <tr :class="deck.included ? '' : 'opacity-40 bg-gray-50'" class="border-t border-gray-100 hover:bg-gray-50 transition">
-            <td class="px-3 py-2 font-medium" x-text="deck.name"></td>
-            <td class="px-3 py-2 text-center">
-              <span :class="metaShareColor(deck.meta_share)" class="px-2 py-0.5 rounded text-xs font-mono" x-text="deck.meta_share > 0 ? deck.meta_share + '%' : '—'"></span>
-            </td>
-            <td class="px-3 py-2 text-center">
-              <select @change="updateMetaDeck(deck.id, {category: $event.target.value})" class="border border-gray-200 rounded px-1 py-0.5 text-xs bg-white">
-                <template x-for="cat in ['Aggro','Midrange','Control','Combo']">
-                  <option :value="cat" :selected="deck.category===cat" x-text="cat"></option>
-                </template>
-              </select>
-            </td>
-            <td class="px-3 py-2 text-center">
-              <input type="checkbox" :checked="deck.included" @change="updateMetaDeck(deck.id, {included: $event.target.checked})" class="cursor-pointer" />
-            </td>
-            <td class="px-3 py-2 text-center">
-              <button x-show="deck.archetype_id" @click="previewDeck(deck)" class="text-indigo-600 hover:underline text-xs">
-                👁 Vedi lista
-              </button>
-              <span x-show="!deck.archetype_id" class="text-gray-400 text-xs">Importato</span>
-            </td>
-          </tr>
-        </template>
-        <tr x-show="filteredMetaDecks().length === 0">
-          <td colspan="5" class="px-3 py-6 text-center text-gray-400">Nessun mazzo. Premi "Aggiorna da MTGTOP8" per caricare il meta.</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
+  <!-- Card grid -->
+  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+    <template x-for="deck in filteredMetaDecks()" :key="deck.id">
+      <div class="deck-card bg-white rounded-xl shadow overflow-hidden border border-gray-100"
+           :class="!deck.included ? 'opacity-50' : ''">
 
-  <!-- Decklist preview modal -->
-  <div x-show="previewModal.open" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print" @click.self="previewModal.open=false">
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-4 max-h-[80vh] overflow-y-auto">
-      <div class="flex justify-between items-center mb-3">
-        <h2 class="font-bold text-base" x-text="'Top Decklist: ' + previewModal.name"></h2>
-        <button @click="previewModal.open=false" class="text-gray-400 hover:text-gray-700 text-xl leading-none">&times;</button>
-      </div>
-      <div x-show="previewModal.loading" class="text-center py-4 text-gray-500">Caricamento...</div>
-      <div x-show="previewModal.error" class="text-red-500 text-sm" x-text="previewModal.error"></div>
-      <div x-show="!previewModal.loading && !previewModal.error">
-        <div class="mb-2">
-          <p class="text-xs font-semibold uppercase text-gray-500 mb-1">Maindeck</p>
-          <template x-for="card in previewModal.main_deck">
-            <div class="text-xs font-mono"><span x-text="card.quantity"></span>x <span x-text="card.name"></span></div>
-          </template>
+        <!-- Image area -->
+        <div class="relative h-28 bg-gradient-to-br from-gray-700 to-gray-900 overflow-hidden">
+          <img x-show="deck.image_url" :src="deck.image_url" alt=""
+               class="w-full h-full object-cover object-top"
+               loading="lazy" @error="$event.target.style.display='none'" />
+          <div x-show="!deck.image_url" class="absolute inset-0 flex items-center justify-center text-4xl text-gray-600">🃏</div>
+          <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+          <!-- Meta% badge -->
+          <span x-show="deck.meta_share > 0"
+            :class="metaShareBadge(deck.meta_share)"
+            class="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-xs font-mono font-bold shadow"
+            x-text="deck.meta_share + '%'">
+          </span>
+          <!-- Custom badge -->
+          <span x-show="deck.source === 'custom'"
+            class="absolute top-1.5 right-1.5 bg-purple-600 text-white text-xs px-1.5 py-0.5 rounded font-medium">Custom</span>
+          <!-- Color pips -->
+          <div class="absolute bottom-1.5 left-1.5 flex gap-0.5">
+            <template x-for="c in (deck.colors || [])">
+              <span :class="'pip pip-' + c" x-text="c"></span>
+            </template>
+          </div>
         </div>
-        <div x-show="previewModal.sideboard && previewModal.sideboard.length > 0">
-          <p class="text-xs font-semibold uppercase text-gray-500 mt-3 mb-1">Sideboard</p>
-          <template x-for="card in previewModal.sideboard">
-            <div class="text-xs font-mono"><span x-text="card.quantity"></span>x <span x-text="card.name"></span></div>
-          </template>
+
+        <!-- Card body -->
+        <div class="p-2 space-y-1.5">
+          <div class="font-semibold text-xs leading-tight line-clamp-2" x-text="deck.name"></div>
+
+          <select @change="updateMetaDeck(deck.id, {category: $event.target.value})"
+            class="w-full border border-gray-200 rounded px-1 py-0.5 text-xs bg-white">
+            <template x-for="cat in ['Aggro','Midrange','Control','Combo']">
+              <option :value="cat" :selected="deck.category===cat" x-text="cat"></option>
+            </template>
+          </select>
+
+          <div class="flex items-center gap-1">
+            <label class="flex items-center gap-1 cursor-pointer flex-1 min-w-0">
+              <input type="checkbox" :checked="deck.included"
+                @change="updateMetaDeck(deck.id, {included: $event.target.checked})"
+                class="cursor-pointer shrink-0" />
+              <span class="text-xs text-gray-500 truncate" x-text="deck.included ? 'Incluso' : 'Escluso'"></span>
+            </label>
+            <a x-show="deck.arch_url" :href="deck.arch_url" target="_blank"
+              title="Apri su MTGGoldfish"
+              class="text-gray-400 hover:text-indigo-600 transition text-sm leading-none shrink-0">↗</a>
+            <button x-show="deck.source === 'custom'" @click="deleteCustomDeck(deck.id)"
+              class="text-red-400 hover:text-red-600 transition text-sm leading-none shrink-0" title="Elimina">✕</button>
+          </div>
         </div>
-        <a x-show="previewModal.source_url" :href="previewModal.source_url" target="_blank" class="text-xs text-indigo-500 hover:underline mt-2 block">🔗 Apri su MTGTOP8</a>
       </div>
+    </template>
+
+    <div x-show="filteredMetaDecks().length === 0" class="col-span-full text-center py-16 text-gray-400">
+      <div class="text-4xl mb-3">🎴</div>
+      <p class="font-medium">Nessun mazzo trovato.</p>
+      <p class="text-sm mt-1">Premi "Aggiorna da MTGGoldfish" per caricare il meta.</p>
     </div>
   </div>
 </div>
@@ -458,6 +462,25 @@
   </div>
 </div>
 
+<!-- Add custom meta deck modal -->
+<div x-show="customDeckModal.open" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print" @click.self="customDeckModal.open=false">
+  <div class="bg-white rounded-lg shadow-xl w-80 p-4">
+    <h2 class="font-bold mb-3">Aggiungi mazzo custom</h2>
+    <input x-model="customDeckModal.name" type="text" placeholder="Nome mazzo"
+      class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2"
+      @keydown.enter="confirmAddCustomDeck()" />
+    <select x-model="customDeckModal.category" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3 bg-white">
+      <template x-for="cat in ['Aggro','Midrange','Control','Combo']">
+        <option :value="cat" x-text="cat"></option>
+      </template>
+    </select>
+    <div class="flex gap-2 justify-end">
+      <button @click="customDeckModal.open=false" class="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-50">Annulla</button>
+      <button @click="confirmAddCustomDeck()" class="px-3 py-1 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">Aggiungi</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast notification -->
 <div x-show="toast.show" x-transition class="fixed bottom-4 right-4 bg-gray-800 text-white text-sm px-4 py-2 rounded shadow-lg z-50 no-print" x-text="toast.msg"></div>
 
@@ -473,7 +496,7 @@ function app() {
     metaDecks: [],
     metaLastFetched: null,
     metaFilter: 'Tutti',
-    previewModal: { open: false, loading: false, name: '', main_deck: [], sideboard: [], source_url: '', error: '' },
+    customDeckModal: { open: false, name: '', category: 'Aggro' },
 
     // My Decks
     myDecks: [],
@@ -585,10 +608,10 @@ function app() {
       return this.metaDecks.filter(d => d.category === this.metaFilter);
     },
 
-    metaShareColor(pct) {
-      if (pct >= 10) return 'bg-red-100 text-red-700';
-      if (pct >= 5) return 'bg-amber-100 text-amber-700';
-      return 'bg-gray-100 text-gray-600';
+    metaShareBadge(pct) {
+      if (pct >= 10) return 'bg-red-600 text-white';
+      if (pct >= 5) return 'bg-amber-500 text-white';
+      return 'bg-black/50 text-white';
     },
 
     async updateMetaDeck(id, patch) {
@@ -599,28 +622,38 @@ function app() {
       });
       const deck = this.metaDecks.find(d => d.id === id);
       if (deck) Object.assign(deck, patch);
-      // Refresh editor if open
-      if (this.sideboardPlan && this.view === 'editor') {
-        // meta deck visibility changed — no need to reload plan
+    },
+
+    async confirmAddCustomDeck() {
+      const { name, category } = this.customDeckModal;
+      if (!name.trim()) return;
+      try {
+        const r = await fetch('/api/meta/decks/custom', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name.trim(), category }),
+        });
+        if (!r.ok) {
+          const e = await r.json();
+          this.showToast('Errore: ' + (e.detail || r.status));
+          return;
+        }
+        const newDeck = await r.json();
+        this.metaDecks.push(newDeck);
+        this.customDeckModal.open = false;
+        this.showToast('Mazzo "' + newDeck.name + '" aggiunto');
+      } catch (e) {
+        this.showToast('Errore: ' + e.message);
       }
     },
 
-    async previewDeck(deck) {
-      this.previewModal = { open: true, loading: true, name: deck.name, main_deck: [], sideboard: [], source_url: '', error: '' };
+    async deleteCustomDeck(id) {
       try {
-        const r = await fetch(`/api/meta/decks/${encodeURIComponent(deck.id)}/preview`);
-        const d = await r.json();
-        if (d.error) {
-          this.previewModal.error = d.error;
-        } else {
-          this.previewModal.main_deck = d.main_deck || [];
-          this.previewModal.sideboard = d.sideboard || [];
-          this.previewModal.source_url = d.source_url || '';
-        }
+        await fetch(`/api/meta/decks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        this.metaDecks = this.metaDecks.filter(d => d.id !== id);
+        this.showToast('Mazzo eliminato');
       } catch (e) {
-        this.previewModal.error = e.message;
-      } finally {
-        this.previewModal.loading = false;
+        this.showToast('Errore: ' + e.message);
       }
     },
 
