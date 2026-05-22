@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MTG Sideboard Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+
+    /* Vertical text for deck name headers */
+    .writing-vertical {
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      transform: rotate(180deg);
+      white-space: nowrap;
+      max-height: 120px;
+      overflow: hidden;
+    }
+
+    /* Sticky table requires separate border-collapse */
+    .sb-table { border-collapse: separate; border-spacing: 0; }
+    .sb-table th, .sb-table td { border-bottom: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb; }
+
+    /* Inline cell input */
+    .cell-input { width: 2rem; text-align: center; border: 1px solid #6366f1; border-radius: 2px; font-size: 0.75rem; }
+
+    /* Print styles */
+    @media print {
+      .no-print { display: none !important; }
+      body { font-size: 9pt; }
+      .matchup-card { break-inside: avoid; page-break-inside: avoid; border: 1px solid #ccc; padding: 4px; margin: 2px; }
+      #print-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 text-sm" x-data="app()" x-init="init()" x-cloak>
+
+<!-- NAV -->
+<nav class="bg-indigo-700 text-white px-4 py-2 flex items-center gap-4 no-print sticky top-0 z-50 shadow">
+  <span class="font-bold text-base tracking-wide">🃏 Sideboard Manager</span>
+  <button @click="view='meta'" :class="view==='meta' ? 'bg-indigo-900' : 'hover:bg-indigo-600'" class="px-3 py-1 rounded text-sm transition">Meta Deck</button>
+  <button @click="view='decks'" :class="view==='decks' ? 'bg-indigo-900' : 'hover:bg-indigo-600'" class="px-3 py-1 rounded text-sm transition">I Miei Mazzi</button>
+  <template x-if="activeDeckId">
+    <button @click="view='editor'" :class="view==='editor' ? 'bg-indigo-900' : 'hover:bg-indigo-600'" class="px-3 py-1 rounded text-sm transition">
+      Editor Side <span class="ml-1 bg-indigo-500 rounded px-1" x-text="activeDeckName"></span>
+    </button>
+  </template>
+  <template x-if="activeDeckId">
+    <button @click="view='print'" :class="view==='print' ? 'bg-indigo-900' : 'hover:bg-indigo-600'" class="px-3 py-1 rounded text-sm transition">🖨 Stampa</button>
+  </template>
+  <div class="ml-auto text-xs opacity-70" x-text="statusMsg"></div>
+</nav>
+
+<!-- ===================== META VIEW ===================== -->
+<div x-show="view==='meta'" class="p-4 no-print">
+  <div class="flex items-center gap-3 mb-4">
+    <h1 class="text-lg font-bold">Meta Deck Pauper</h1>
+    <button @click="fetchMeta()" :disabled="loading" class="btn-primary px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-sm">
+      <span x-show="!loading">⟳ Aggiorna da MTGTOP8</span>
+      <span x-show="loading">Caricamento...</span>
+    </button>
+    <span class="text-xs text-gray-400" x-text="metaLastFetched ? 'Aggiornato: ' + fmtDate(metaLastFetched) : 'Mai sincronizzato'"></span>
+  </div>
+
+  <!-- Category tabs -->
+  <div class="flex gap-2 mb-4">
+    <template x-for="cat in ['Aggro','Midrange','Control','Combo','Tutti']">
+      <button @click="metaFilter=cat" :class="metaFilter===cat ? 'bg-indigo-100 border-indigo-400 font-semibold' : 'bg-white border-gray-200 hover:bg-gray-50'" class="px-3 py-1 border rounded text-xs transition" x-text="cat"></button>
+    </template>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="w-full bg-white border border-gray-200 rounded shadow-sm text-xs">
+      <thead>
+        <tr class="bg-gray-100 text-gray-600 uppercase text-xs">
+          <th class="px-3 py-2 text-left">Mazzo</th>
+          <th class="px-3 py-2">Meta %</th>
+          <th class="px-3 py-2">Categoria</th>
+          <th class="px-3 py-2">Includi</th>
+          <th class="px-3 py-2">Decklist</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="deck in filteredMetaDecks()" :key="deck.id">
+          <tr :class="deck.included ? '' : 'opacity-40 bg-gray-50'" class="border-t border-gray-100 hover:bg-gray-50 transition">
+            <td class="px-3 py-2 font-medium" x-text="deck.name"></td>
+            <td class="px-3 py-2 text-center">
+              <span :class="metaShareColor(deck.meta_share)" class="px-2 py-0.5 rounded text-xs font-mono" x-text="deck.meta_share > 0 ? deck.meta_share + '%' : '—'"></span>
+            </td>
+            <td class="px-3 py-2 text-center">
+              <select @change="updateMetaDeck(deck.id, {category: $event.target.value})" class="border border-gray-200 rounded px-1 py-0.5 text-xs bg-white">
+                <template x-for="cat in ['Aggro','Midrange','Control','Combo']">
+                  <option :value="cat" :selected="deck.category===cat" x-text="cat"></option>
+                </template>
+              </select>
+            </td>
+            <td class="px-3 py-2 text-center">
+              <input type="checkbox" :checked="deck.included" @change="updateMetaDeck(deck.id, {included: $event.target.checked})" class="cursor-pointer" />
+            </td>
+            <td class="px-3 py-2 text-center">
+              <button x-show="deck.archetype_id" @click="previewDeck(deck)" class="text-indigo-600 hover:underline text-xs">
+                👁 Vedi lista
+              </button>
+              <span x-show="!deck.archetype_id" class="text-gray-400 text-xs">Importato</span>
+            </td>
+          </tr>
+        </template>
+        <tr x-show="filteredMetaDecks().length === 0">
+          <td colspan="5" class="px-3 py-6 text-center text-gray-400">Nessun mazzo. Premi "Aggiorna da MTGTOP8" per caricare il meta.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Decklist preview modal -->
+  <div x-show="previewModal.open" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print" @click.self="previewModal.open=false">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-4 max-h-[80vh] overflow-y-auto">
+      <div class="flex justify-between items-center mb-3">
+        <h2 class="font-bold text-base" x-text="'Top Decklist: ' + previewModal.name"></h2>
+        <button @click="previewModal.open=false" class="text-gray-400 hover:text-gray-700 text-xl leading-none">&times;</button>
+      </div>
+      <div x-show="previewModal.loading" class="text-center py-4 text-gray-500">Caricamento...</div>
+      <div x-show="previewModal.error" class="text-red-500 text-sm" x-text="previewModal.error"></div>
+      <div x-show="!previewModal.loading && !previewModal.error">
+        <div class="mb-2">
+          <p class="text-xs font-semibold uppercase text-gray-500 mb-1">Maindeck</p>
+          <template x-for="card in previewModal.main_deck">
+            <div class="text-xs font-mono"><span x-text="card.quantity"></span>x <span x-text="card.name"></span></div>
+          </template>
+        </div>
+        <div x-show="previewModal.sideboard && previewModal.sideboard.length > 0">
+          <p class="text-xs font-semibold uppercase text-gray-500 mt-3 mb-1">Sideboard</p>
+          <template x-for="card in previewModal.sideboard">
+            <div class="text-xs font-mono"><span x-text="card.quantity"></span>x <span x-text="card.name"></span></div>
+          </template>
+        </div>
+        <a x-show="previewModal.source_url" :href="previewModal.source_url" target="_blank" class="text-xs text-indigo-500 hover:underline mt-2 block">🔗 Apri su MTGTOP8</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MY DECKS VIEW ===================== -->
+<div x-show="view==='decks'" class="p-4 no-print">
+  <div class="flex items-center gap-3 mb-4">
+    <h1 class="text-lg font-bold">I Miei Mazzi Pauper</h1>
+    <button @click="syncAllDecks()" :disabled="loading" class="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-sm">
+      <span x-show="!loading">⟳ Sync da Archidekt</span>
+      <span x-show="loading">Sincronizzazione...</span>
+    </button>
+    <span class="text-xs text-gray-400" x-text="myDecksLastSync ? 'Sync: ' + fmtDate(myDecksLastSync) : 'Mai sincronizzato'"></span>
+    <button @click="runXlsxImport()" class="px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 text-xs">📥 Importa side.xlsx</button>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <template x-for="deck in myDecks" :key="deck.id">
+      <div class="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition cursor-pointer" @click="openEditor(deck)">
+        <div class="flex justify-between items-start mb-2">
+          <h2 class="font-bold text-base capitalize" x-text="deck.name"></h2>
+          <span x-show="hasStalePlan(deck)" class="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full">⚠ Side invalida</span>
+        </div>
+        <div class="text-xs text-gray-500 space-y-1">
+          <div>Maindeck: <span class="font-mono" x-text="(deck.main_deck || []).reduce((s,c)=>s+c.quantity,0) + ' carte'"></span></div>
+          <div>Sideboard: <span class="font-mono" x-text="(deck.sideboard || []).reduce((s,c)=>s+c.quantity,0) + '/15'"></span></div>
+          <div x-show="deck.last_synced" class="text-gray-400" x-text="'Sync: ' + fmtDate(deck.last_synced)"></div>
+          <div x-show="deck.archidekt_url">
+            <a :href="deck.archidekt_url" target="_blank" @click.stop class="text-indigo-500 hover:underline">🔗 Archidekt</a>
+          </div>
+        </div>
+        <div class="mt-3 flex gap-2">
+          <button @click.stop="openEditor(deck)" class="flex-1 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-medium">✏️ Editor Side</button>
+          <button @click.stop="syncSingleDeck(deck)" :disabled="!deck.archidekt_id" class="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded text-xs disabled:opacity-40" title="Sync singolo">⟳</button>
+        </div>
+      </div>
+    </template>
+    <div x-show="myDecks.length === 0" class="col-span-3 text-center py-10 text-gray-400">
+      Nessun mazzo. Premi "Sync da Archidekt" o "Importa side.xlsx".
+    </div>
+  </div>
+</div>
+
+<!-- ===================== EDITOR VIEW ===================== -->
+<div x-show="view==='editor' && sideboardPlan" class="no-print" x-cloak>
+  <div class="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-3 sticky top-12 z-40 shadow-sm">
+    <h1 class="font-bold text-base capitalize" x-text="activeDeckName + ' — Editor Sideboard'"></h1>
+    <span class="text-xs text-gray-500" x-text="includedMetaDecks().length + ' matchup attivi'"></span>
+    <button @click="addTheoreticalCard()" class="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs">+ Carta teorica</button>
+    <div class="ml-auto flex items-center gap-2">
+      <span class="text-xs text-gray-400">Legenda:</span>
+      <span class="text-xs bg-red-100 px-2 py-0.5 rounded">OUT invalida</span>
+      <span class="text-xs bg-blue-50 px-2 py-0.5 rounded italic">Teorica</span>
+    </div>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="sb-table text-xs w-max">
+      <thead>
+        <!-- Category row -->
+        <tr class="bg-gray-100 sticky top-24 z-30">
+          <th class="sticky left-0 z-40 bg-gray-100 px-2 py-1 text-left min-w-[180px]">Carta</th>
+          <th class="sticky left-[180px] z-40 bg-gray-100 px-2 py-1 text-center w-8">#</th>
+          <template x-for="cat in ['Aggro','Midrange','Control','Combo']" :key="cat">
+            <template x-if="decksInCategory(cat).length > 0">
+              <th :colspan="decksInCategory(cat).length" class="px-2 py-1 text-center border-l-2 border-l-gray-300 font-bold"
+                  :class="{'text-red-600': cat==='Aggro', 'text-amber-600': cat==='Midrange', 'text-blue-600': cat==='Control', 'text-purple-600': cat==='Combo'}"
+                  x-text="cat">
+              </th>
+            </template>
+          </template>
+        </tr>
+        <!-- Deck names row -->
+        <tr class="bg-gray-50 sticky top-[4.5rem] z-30">
+          <th class="sticky left-0 z-40 bg-gray-50 px-2 py-1"></th>
+          <th class="sticky left-[180px] z-40 bg-gray-50 px-2 py-1"></th>
+          <template x-for="deck in includedMetaDecks()" :key="deck.id">
+            <th class="px-1 py-2 text-center" style="min-width:2rem; max-width:2.5rem;">
+              <div class="writing-vertical text-xs leading-tight" :title="deck.name" x-text="deck.name"></div>
+            </th>
+          </template>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- MAIN DECK section -->
+        <tr class="bg-gray-200">
+          <td class="sticky left-0 z-10 bg-gray-200 px-2 py-1 font-bold text-xs uppercase tracking-wide" colspan="2">Main Deck — OUT</td>
+          <template x-for="deck in includedMetaDecks()">
+            <td class="bg-gray-200 px-1 py-0.5 text-center">
+              <span class="text-xs font-mono text-gray-500" :title="'Side size: ' + sideboardSize(deck.id)"
+                    :class="sideboardSize(deck.id) === 15 ? 'text-green-600 font-bold' : sideboardSize(deck.id) > 15 ? 'text-red-600 font-bold' : 'text-gray-400'"
+                    x-text="sideboardSize(deck.id) + '/15'">
+              </span>
+            </td>
+          </template>
+        </tr>
+        <template x-for="card in sideboardPlan.deck.main_deck" :key="card.name">
+          <tr :class="hasStaleOut(card.name) ? 'bg-red-50' : 'hover:bg-yellow-50'" class="transition">
+            <td class="sticky left-0 z-10 bg-inherit px-2 py-1 font-medium whitespace-nowrap" x-text="card.name"></td>
+            <td class="sticky left-[180px] z-10 bg-inherit px-2 py-0.5 text-center font-mono" x-text="card.quantity"></td>
+            <template x-for="metaDeck in includedMetaDecks()" :key="metaDeck.id">
+              <td class="px-1 py-0.5 text-center"
+                  x-data="cellData('out', card.name, metaDeck.id)"
+                  @click="startEdit()"
+                  :class="editing ? 'bg-yellow-100' : ''">
+                <span x-show="!editing" class="cursor-pointer text-red-700 font-mono font-semibold"
+                      x-text="val > 0 ? val : ''" :title="'OUT: ' + val + ' ' + card.name"></span>
+                <input x-show="editing" x-model.number="val" type="number" min="0" max="4"
+                       class="cell-input" x-ref="inp"
+                       @blur="commit()" @keydown.enter="commit()" @keydown.escape="cancel()"
+                       @click.stop />
+              </td>
+            </template>
+          </tr>
+        </template>
+
+        <!-- SIDEBOARD section -->
+        <tr class="bg-gray-200">
+          <td class="sticky left-0 z-10 bg-gray-200 px-2 py-1 font-bold text-xs uppercase tracking-wide" colspan="2">Sideboard — IN</td>
+          <template x-for="deck in includedMetaDecks()">
+            <td class="bg-gray-200"></td>
+          </template>
+        </tr>
+        <template x-for="card in allSideboardCards()" :key="card.name">
+          <tr :class="card.theoretical ? 'bg-blue-50 italic' : 'hover:bg-green-50'" class="transition">
+            <td class="sticky left-0 z-10 bg-inherit px-2 py-1 font-medium whitespace-nowrap flex items-center gap-1">
+              <span x-text="card.name"></span>
+              <span x-show="card.theoretical" class="text-blue-400 text-xs">(T)</span>
+              <button x-show="card.theoretical" @click="removeTheoreticalCard(card.name)" class="text-red-400 hover:text-red-600 ml-1 text-xs leading-none" title="Rimuovi">&times;</button>
+            </td>
+            <td class="sticky left-[180px] z-10 bg-inherit px-2 py-0.5 text-center font-mono" x-text="card.quantity"></td>
+            <template x-for="metaDeck in includedMetaDecks()" :key="metaDeck.id">
+              <td class="px-1 py-0.5 text-center"
+                  x-data="cellData('in', card.name, metaDeck.id)"
+                  @click="startEdit()"
+                  :class="editing ? 'bg-green-100' : ''">
+                <span x-show="!editing" class="cursor-pointer text-green-700 font-mono font-semibold"
+                      x-text="val > 0 ? val : ''" :title="'IN: ' + val + ' ' + card.name"></span>
+                <input x-show="editing" x-model.number="val" type="number" min="0" max="4"
+                       class="cell-input" x-ref="inp"
+                       @blur="commit()" @keydown.enter="commit()" @keydown.escape="cancel()"
+                       @click.stop />
+              </td>
+            </template>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===================== PRINT VIEW ===================== -->
+<div x-show="view==='print' && printData" x-cloak>
+  <div class="no-print flex items-center gap-3 p-4 bg-white border-b border-gray-200 sticky top-12">
+    <h1 class="font-bold text-base" x-text="'Stampa Side — ' + (printData ? printData.deck_name : '')"></h1>
+    <button onclick="window.print()" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm">🖨 Stampa</button>
+    <span class="text-xs text-gray-400">Usa il browser per stampare. Layout 2 colonne ottimizzato per il portamazzo.</span>
+  </div>
+
+  <div id="print-grid" class="p-2 grid grid-cols-2 gap-2" style="max-width: 800px; margin: 0 auto;">
+    <template x-if="printData">
+      <template x-for="matchup in printData.matchups" :key="matchup.matchup">
+        <div class="matchup-card border border-gray-300 rounded p-2 text-xs">
+          <div class="font-bold text-xs uppercase tracking-wide border-b border-gray-200 pb-1 mb-1 flex justify-between">
+            <span x-text="matchup.matchup"></span>
+            <span class="text-gray-400 font-normal" x-text="matchup.category"></span>
+          </div>
+          <div class="mb-0.5">
+            <span class="font-semibold text-green-700">IN: </span>
+            <span x-text="matchup.in.map(c => c.quantity + 'x ' + c.card).join(', ')"></span>
+          </div>
+          <div>
+            <span class="font-semibold text-red-700">OUT: </span>
+            <span x-text="matchup.out.map(c => c.quantity + 'x ' + c.card).join(', ')"></span>
+          </div>
+          <div x-show="matchup.notes" class="text-gray-400 italic mt-0.5" x-text="matchup.notes"></div>
+        </div>
+      </template>
+    </template>
+  </div>
+</div>
+
+<!-- Add theoretical card modal -->
+<div x-show="theoreticalModal.open" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print" @click.self="theoreticalModal.open=false">
+  <div class="bg-white rounded-lg shadow-xl w-80 p-4">
+    <h2 class="font-bold mb-3">Aggiungi carta teorica</h2>
+    <input x-model="theoreticalModal.card" type="text" placeholder="Nome carta" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2" @keydown.enter="confirmAddTheoretical()" />
+    <input x-model.number="theoreticalModal.qty" type="number" min="1" max="4" placeholder="Quantità" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3" />
+    <div class="flex gap-2 justify-end">
+      <button @click="theoreticalModal.open=false" class="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-50">Annulla</button>
+      <button @click="confirmAddTheoretical()" class="px-3 py-1 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">Aggiungi</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast notification -->
+<div x-show="toast.show" x-transition class="fixed bottom-4 right-4 bg-gray-800 text-white text-sm px-4 py-2 rounded shadow-lg z-50 no-print" x-text="toast.msg"></div>
+
+<script>
+function app() {
+  return {
+    view: 'decks',
+    loading: false,
+    statusMsg: '',
+    toast: { show: false, msg: '' },
+
+    // Meta
+    metaDecks: [],
+    metaLastFetched: null,
+    metaFilter: 'Tutti',
+    previewModal: { open: false, loading: false, name: '', main_deck: [], sideboard: [], source_url: '', error: '' },
+
+    // My Decks
+    myDecks: [],
+    myDecksLastSync: null,
+    stalePlans: {},
+
+    // Editor
+    activeDeckId: null,
+    activeDeckName: '',
+    sideboardPlan: null,
+    theoreticalModal: { open: false, card: '', qty: 1 },
+
+    // Print
+    printData: null,
+
+    async init() {
+      await Promise.all([this.loadMeta(), this.loadMyDecks()]);
+    },
+
+    async loadMeta() {
+      const r = await fetch('/api/meta/decks');
+      const d = await r.json();
+      this.metaDecks = d.decks || [];
+      this.metaLastFetched = d.last_fetched;
+    },
+
+    async loadMyDecks() {
+      const r = await fetch('/api/decks');
+      const d = await r.json();
+      this.myDecks = d.decks || [];
+      this.myDecksLastSync = d.last_folder_sync;
+      await this.loadStalePlans();
+    },
+
+    async loadStalePlans() {
+      for (const deck of this.myDecks) {
+        const r = await fetch(`/api/decks/${deck.id}/validate`);
+        const d = await r.json();
+        this.stalePlans[deck.id] = (d.stale || []).length > 0;
+      }
+    },
+
+    hasStalePlan(deck) {
+      return this.stalePlans[deck.id] || false;
+    },
+
+    async fetchMeta() {
+      this.loading = true;
+      this.statusMsg = 'Aggiornamento meta...';
+      try {
+        const r = await fetch('/api/meta/fetch', { method: 'POST' });
+        const d = await r.json();
+        this.metaDecks = d.decks || [];
+        this.metaLastFetched = d.last_fetched;
+        this.showToast('Meta aggiornato: ' + (d.decks || []).length + ' mazzi');
+      } catch (e) {
+        this.showToast('Errore: ' + e.message);
+      } finally {
+        this.loading = false;
+        this.statusMsg = '';
+      }
+    },
+
+    filteredMetaDecks() {
+      if (this.metaFilter === 'Tutti') return this.metaDecks;
+      return this.metaDecks.filter(d => d.category === this.metaFilter);
+    },
+
+    metaShareColor(pct) {
+      if (pct >= 10) return 'bg-red-100 text-red-700';
+      if (pct >= 5) return 'bg-amber-100 text-amber-700';
+      return 'bg-gray-100 text-gray-600';
+    },
+
+    async updateMetaDeck(id, patch) {
+      await fetch(`/api/meta/decks/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const deck = this.metaDecks.find(d => d.id === id);
+      if (deck) Object.assign(deck, patch);
+      // Refresh editor if open
+      if (this.sideboardPlan && this.view === 'editor') {
+        // meta deck visibility changed — no need to reload plan
+      }
+    },
+
+    async previewDeck(deck) {
+      this.previewModal = { open: true, loading: true, name: deck.name, main_deck: [], sideboard: [], source_url: '', error: '' };
+      try {
+        const r = await fetch(`/api/meta/decks/${encodeURIComponent(deck.id)}/preview`);
+        const d = await r.json();
+        if (d.error) {
+          this.previewModal.error = d.error;
+        } else {
+          this.previewModal.main_deck = d.main_deck || [];
+          this.previewModal.sideboard = d.sideboard || [];
+          this.previewModal.source_url = d.source_url || '';
+        }
+      } catch (e) {
+        this.previewModal.error = e.message;
+      } finally {
+        this.previewModal.loading = false;
+      }
+    },
+
+    async syncAllDecks() {
+      this.loading = true;
+      this.statusMsg = 'Sync Archidekt...';
+      try {
+        const r = await fetch('/api/decks/sync', { method: 'POST' });
+        const d = await r.json();
+        this.myDecks = d.decks || [];
+        this.myDecksLastSync = d.last_folder_sync;
+        await this.loadStalePlans();
+        this.showToast('Sync completato: ' + (d.decks || []).length + ' mazzi');
+      } catch (e) {
+        this.showToast('Errore sync: ' + e.message);
+      } finally {
+        this.loading = false;
+        this.statusMsg = '';
+      }
+    },
+
+    async syncSingleDeck(deck) {
+      this.loading = true;
+      try {
+        const r = await fetch(`/api/decks/${deck.id}/sync`, { method: 'POST' });
+        const d = await r.json();
+        const idx = this.myDecks.findIndex(x => x.id === deck.id);
+        if (idx >= 0) this.myDecks[idx] = d;
+        this.showToast('Sync ' + d.name + ' completato');
+      } catch (e) {
+        this.showToast('Errore: ' + e.message);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async runXlsxImport() {
+      this.loading = true;
+      this.statusMsg = 'Importazione side.xlsx...';
+      try {
+        const r = await fetch('/api/import/xlsx', { method: 'POST' });
+        const d = await r.json();
+        await this.loadMeta();
+        await this.loadMyDecks();
+        this.showToast(`Importati ${d.imported_decks} mazzi, ${d.imported_opponent_decks} avversari`);
+      } catch (e) {
+        this.showToast('Errore import: ' + e.message);
+      } finally {
+        this.loading = false;
+        this.statusMsg = '';
+      }
+    },
+
+    async openEditor(deck) {
+      this.activeDeckId = deck.id;
+      this.activeDeckName = deck.name;
+      this.view = 'editor';
+      const r = await fetch(`/api/sideboards/${deck.id}`);
+      this.sideboardPlan = await r.json();
+      // Also load print data
+      const r2 = await fetch(`/api/sideboards/${deck.id}/print`);
+      this.printData = await r2.json();
+    },
+
+    includedMetaDecks() {
+      return this.metaDecks.filter(d => d.included);
+    },
+
+    decksInCategory(cat) {
+      return this.metaDecks.filter(d => d.included && d.category === cat);
+    },
+
+    hasStaleOut(cardName) {
+      if (!this.sideboardPlan) return false;
+      const plans = this.sideboardPlan.plans || {};
+      return Object.values(plans).some(plan =>
+        (plan.out || []).some(e => e.card === cardName && e.stale)
+      );
+    },
+
+    allSideboardCards() {
+      if (!this.sideboardPlan) return [];
+      const real = (this.sideboardPlan.deck?.sideboard || []).map(c => ({ ...c, theoretical: false }));
+      const theoretical = (this.sideboardPlan.theoretical_pool || []).map(c => ({ ...c, theoretical: true }));
+      return [...real, ...theoretical];
+    },
+
+    getVal(type, cardName, metaDeckId) {
+      const plans = this.sideboardPlan?.plans || {};
+      const plan = plans[metaDeckId] || {};
+      const list = plan[type] || [];
+      const entry = list.find(e => e.card === cardName);
+      return entry ? entry.quantity : 0;
+    },
+
+    async saveVal(type, cardName, metaDeckId, qty) {
+      const plans = this.sideboardPlan?.plans || {};
+      const plan = JSON.parse(JSON.stringify(plans[metaDeckId] || { out: [], in: [], notes: '' }));
+      const list = plan[type] || [];
+      const idx = list.findIndex(e => e.card === cardName);
+      if (qty === 0 || qty === null || qty === '') {
+        if (idx >= 0) list.splice(idx, 1);
+      } else {
+        if (idx >= 0) list[idx].quantity = qty;
+        else list.push({ card: cardName, quantity: qty });
+      }
+      plan[type] = list;
+
+      await fetch(`/api/sideboards/${this.activeDeckId}/${encodeURIComponent(metaDeckId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(plan),
+      });
+
+      // Update local state
+      if (!this.sideboardPlan.plans[metaDeckId]) {
+        this.sideboardPlan.plans[metaDeckId] = { out: [], in: [], notes: '' };
+      }
+      this.sideboardPlan.plans[metaDeckId] = plan;
+
+      // Refresh print data
+      const r = await fetch(`/api/sideboards/${this.activeDeckId}/print`);
+      this.printData = await r.json();
+    },
+
+    sideboardSize(metaDeckId) {
+      const plan = (this.sideboardPlan?.plans || {})[metaDeckId] || {};
+      return (plan.in || []).reduce((s, e) => s + e.quantity, 0);
+    },
+
+    addTheoreticalCard() {
+      this.theoreticalModal = { open: true, card: '', qty: 1 };
+    },
+
+    async confirmAddTheoretical() {
+      const { card, qty } = this.theoreticalModal;
+      if (!card.trim()) return;
+      await fetch(`/api/sideboards/${this.activeDeckId}/theoretical`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ card: card.trim(), quantity: qty }),
+      });
+      this.theoreticalModal.open = false;
+      // Refresh plan
+      const r = await fetch(`/api/sideboards/${this.activeDeckId}`);
+      this.sideboardPlan = await r.json();
+    },
+
+    async removeTheoreticalCard(cardName) {
+      await fetch(`/api/sideboards/${this.activeDeckId}/theoretical/${encodeURIComponent(cardName)}`, { method: 'DELETE' });
+      const r = await fetch(`/api/sideboards/${this.activeDeckId}`);
+      this.sideboardPlan = await r.json();
+    },
+
+    fmtDate(iso) {
+      if (!iso) return '';
+      try {
+        return new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      } catch { return iso; }
+    },
+
+    showToast(msg) {
+      this.toast = { show: true, msg };
+      setTimeout(() => { this.toast.show = false; }, 3000);
+    },
+  };
+}
+
+// Per-cell Alpine component (handles editing + save)
+function cellData(type, cardName, metaDeckId) {
+  return {
+    type, cardName, metaDeckId,
+    editing: false,
+    originalVal: 0,
+    val: 0,
+
+    init() {
+      this.val = this.$root.closest('[x-data]').__x?.$data?.getVal(type, cardName, metaDeckId) ?? 0;
+      // Reactively get from parent app
+      const appEl = document.querySelector('[x-data="app()"]') || document.body;
+      this.$watch('val', () => {}); // ensure reactivity
+    },
+
+    getAppData() {
+      // Walk up to find the app Alpine component
+      let el = this.$el;
+      while (el) {
+        if (el._x_dataStack) {
+          const stack = el._x_dataStack;
+          for (const d of stack) {
+            if (typeof d.getVal === 'function') return d;
+          }
+        }
+        el = el.parentElement;
+      }
+      return null;
+    },
+
+    refreshVal() {
+      const app = this.getAppData();
+      if (app) this.val = app.getVal(this.type, this.cardName, this.metaDeckId);
+    },
+
+    startEdit() {
+      this.refreshVal();
+      this.originalVal = this.val;
+      this.editing = true;
+      this.$nextTick(() => this.$refs.inp?.focus());
+    },
+
+    async commit() {
+      this.editing = false;
+      if (this.val === this.originalVal) return;
+      const app = this.getAppData();
+      if (app) await app.saveVal(this.type, this.cardName, this.metaDeckId, this.val || 0);
+    },
+
+    cancel() {
+      this.val = this.originalVal;
+      this.editing = false;
+    },
+  };
+}
+</script>
+</body>
+</html>
