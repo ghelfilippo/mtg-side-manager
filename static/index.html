@@ -339,63 +339,54 @@
           </template>
         </tr>
       </thead>
-      <tbody>
-        <!-- MAIN DECK — OUT header -->
+      <tbody @mouseleave="hoveredColId = null">
+        <!-- MAIN DECK — OUT header with per-matchup counters -->
         <tr class="bg-gray-200">
           <td class="sticky left-0 z-10 bg-gray-200 px-2 py-1 font-bold text-xs uppercase tracking-wide" colspan="2">Main Deck — OUT</td>
-          <template x-for="(deck, dIdx) in includedMetaDecks()">
+          <template x-for="deck in includedMetaDecks()">
             <td class="bg-gray-200 px-1 py-0.5 text-center"
-                :class="[dIdx === 0 || includedMetaDecks()[dIdx-1].category !== deck.category ? 'border-l-4 border-l-gray-400' : '', hoveredColId === deck.id ? '!bg-gray-300' : '']"
+                :class="[deck.catBorder ? 'border-l-4 border-l-gray-400' : '', hoveredColId === deck.id ? '!bg-gray-300' : '']"
                 @mouseenter="hoveredColId = deck.id" @mouseleave="hoveredColId = null">
               <span class="font-mono" :title="'Side: ' + sideboardSize(deck.id)"
-                    :class="sideboardSize(deck.id) === 15 ? 'text-green-700 font-bold' : sideboardSize(deck.id) > 15 ? 'text-red-600 font-bold' : 'text-gray-400'"
+                    :class="sideboardSize(deck.id) === 15 && !matchupError(deck.id) ? 'text-green-700 font-bold' : sideboardSize(deck.id) > 15 || matchupError(deck.id) ? 'text-red-600 font-bold' : 'text-gray-400'"
                     x-text="sideboardSize(deck.id) + '/15'">
               </span>
+              <span x-show="matchupError(deck.id)" class="text-orange-500 text-xs" title="IN ≠ OUT">⚠</span>
             </td>
           </template>
         </tr>
 
-        <!-- Main deck rows — flat array (section headers + card rows) -->
+        <!-- Main deck rows — flat array of section headers + card rows -->
         <template x-for="row in mainDeckRows()" :key="row.key">
           <tr :class="row.type === 'header'
                 ? 'bg-gray-100'
-                : [hasStaleOut(row.name) ? 'bg-red-50' : (row.even ? 'bg-white' : 'bg-gray-50/70'), 'hover:bg-yellow-50 transition-colors']">
-
-            <!-- Name / section label -->
+                : [hasStaleOut(row.name) ? 'bg-red-50' : (row.even ? 'bg-white' : 'bg-gray-50/60'), 'hover:bg-yellow-50 transition-colors']">
             <td class="sticky left-0 z-10 bg-inherit px-2 whitespace-nowrap"
                 :class="row.type === 'header' ? 'py-0.5 text-xs font-bold text-gray-500 uppercase tracking-wider' : 'py-1 font-medium'"
                 :colspan="row.type === 'header' ? 2 : 1"
                 x-text="row.type === 'header' ? row.label : row.name">
             </td>
-
-            <!-- Qty (cards only) -->
             <template x-if="row.type !== 'header'">
               <td class="sticky left-[180px] z-10 bg-inherit px-2 py-0.5 text-center font-mono text-gray-500" x-text="row.quantity"></td>
             </template>
-
-            <!-- Per-matchup OUT cells (cards only) -->
             <template x-if="row.type !== 'header'">
-              <template x-for="(metaDeck, mIdx) in includedMetaDecks()" :key="metaDeck.id">
-                <td class="px-1 py-0.5 text-center transition-colors"
-                    :class="[
-                      mIdx === 0 || includedMetaDecks()[mIdx-1].category !== metaDeck.category ? 'border-l-4 border-l-gray-300' : 'border-l border-l-gray-100',
-                      editing ? 'bg-yellow-100' : (hoveredColId === metaDeck.id ? 'bg-indigo-50' : '')
-                    ]"
-                    x-data="cellData('out', row.name, metaDeck.id)"
-                    @click="startEdit()"
+              <template x-for="metaDeck in includedMetaDecks()" :key="metaDeck.id">
+                <td class="p-0 transition-colors"
+                    :class="[metaDeck.catBorder ? 'border-l-4 border-l-gray-300' : 'border-l border-l-gray-100', hoveredColId === metaDeck.id ? 'bg-indigo-50' : '']"
                     @mouseenter="hoveredColId = metaDeck.id" @mouseleave="hoveredColId = null">
-                  <span x-show="!editing" class="cursor-pointer text-red-700 font-mono font-semibold" x-text="val > 0 ? val : ''"></span>
-                  <input x-show="editing" x-model.number="val" type="number" min="0" max="4"
-                         class="cell-input" x-ref="inp"
-                         @blur="commit()" @keydown.enter="commit()" @keydown.escape="cancel()" @click.stop />
+                  <div class="px-1 py-0.5 text-center" x-data="cellData('out', row.name, metaDeck.id)" @click="startEdit()"
+                       :class="editing ? 'bg-yellow-100' : ''">
+                    <span x-show="!editing" class="cursor-pointer text-red-700 font-mono font-semibold" x-text="val > 0 ? val : ''"></span>
+                    <input x-show="editing" x-model.number="val" type="number" min="0" :max="row.quantity"
+                           class="cell-input" x-ref="inp"
+                           @blur="commit()" @keydown.enter="commit()" @keydown.escape="cancel()" @click.stop />
+                  </div>
                 </td>
               </template>
             </template>
-
-            <!-- Empty cells for header rows -->
             <template x-if="row.type === 'header'">
               <template x-for="metaDeck in includedMetaDecks()" :key="metaDeck.id">
-                <td class="bg-inherit"></td>
+                <td class="bg-inherit" :class="metaDeck.catBorder ? 'border-l-4 border-l-gray-300' : ''"></td>
               </template>
             </template>
           </tr>
@@ -404,17 +395,17 @@
         <!-- SIDEBOARD — IN header -->
         <tr class="bg-gray-200">
           <td class="sticky left-0 z-10 bg-gray-200 px-2 py-1 font-bold text-xs uppercase tracking-wide" colspan="2">Sideboard — IN</td>
-          <template x-for="(deck, dIdx) in includedMetaDecks()">
+          <template x-for="deck in includedMetaDecks()">
             <td class="bg-gray-200"
-                :class="[dIdx === 0 || includedMetaDecks()[dIdx-1].category !== deck.category ? 'border-l-4 border-l-gray-400' : '', hoveredColId === deck.id ? '!bg-gray-300' : '']"
+                :class="[deck.catBorder ? 'border-l-4 border-l-gray-400' : '', hoveredColId === deck.id ? '!bg-gray-300' : '']"
                 @mouseenter="hoveredColId = deck.id" @mouseleave="hoveredColId = null">
             </td>
           </template>
         </tr>
 
         <!-- Sideboard IN rows -->
-        <template x-for="(card, sIdx) in allSideboardCards()" :key="card.name">
-          <tr :class="[card.theoretical ? 'bg-blue-50/80 italic' : (sIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50/70'), 'hover:bg-green-50 transition-colors']">
+        <template x-for="card in allSideboardCards()" :key="card.name">
+          <tr :class="[card.theoretical ? 'bg-blue-50/80 italic' : (card.rowEven ? 'bg-white' : 'bg-gray-50/60'), 'hover:bg-green-50 transition-colors']">
             <td class="sticky left-0 z-10 bg-inherit px-2 py-1 font-medium whitespace-nowrap">
               <span x-text="card.name"></span>
               <span x-show="card.theoretical" class="text-blue-400 text-xs ml-1">(T)</span>
@@ -422,19 +413,17 @@
                 class="text-red-400 hover:text-red-600 ml-1 text-xs leading-none">&times;</button>
             </td>
             <td class="sticky left-[180px] z-10 bg-inherit px-2 py-0.5 text-center font-mono text-gray-500" x-text="card.quantity"></td>
-            <template x-for="(metaDeck, mIdx) in includedMetaDecks()" :key="metaDeck.id">
-              <td class="px-1 py-0.5 text-center transition-colors"
-                  :class="[
-                    mIdx === 0 || includedMetaDecks()[mIdx-1].category !== metaDeck.category ? 'border-l-4 border-l-gray-300' : 'border-l border-l-gray-100',
-                    editing ? 'bg-green-100' : (hoveredColId === metaDeck.id ? 'bg-indigo-50' : '')
-                  ]"
-                  x-data="cellData('in', card.name, metaDeck.id)"
-                  @click="startEdit()"
+            <template x-for="metaDeck in includedMetaDecks()" :key="metaDeck.id">
+              <td class="p-0 transition-colors"
+                  :class="[metaDeck.catBorder ? 'border-l-4 border-l-gray-300' : 'border-l border-l-gray-100', hoveredColId === metaDeck.id ? 'bg-indigo-50' : '']"
                   @mouseenter="hoveredColId = metaDeck.id" @mouseleave="hoveredColId = null">
-                <span x-show="!editing" class="cursor-pointer text-green-700 font-mono font-semibold" x-text="val > 0 ? val : ''"></span>
-                <input x-show="editing" x-model.number="val" type="number" min="0" max="4"
-                       class="cell-input" x-ref="inp"
-                       @blur="commit()" @keydown.enter="commit()" @keydown.escape="cancel()" @click.stop />
+                <div class="px-1 py-0.5 text-center" x-data="cellData('in', card.name, metaDeck.id)" @click="startEdit()"
+                     :class="editing ? 'bg-green-100' : ''">
+                  <span x-show="!editing" class="cursor-pointer text-green-700 font-mono font-semibold" x-text="val > 0 ? val : ''"></span>
+                  <input x-show="editing" x-model.number="val" type="number" min="0" max="4"
+                         class="cell-input" x-ref="inp"
+                         @blur="commit()" @keydown.enter="commit()" @keydown.escape="cancel()" @click.stop />
+                </div>
               </td>
             </template>
           </tr>
@@ -875,17 +864,28 @@ function app() {
 
     includedMetaDecks() {
       const catOrder = { 'Aggro': 0, 'Midrange': 1, 'Control': 2, 'Combo': 3 };
-      return this.metaDecks.filter(d => d.included).sort((a, b) => {
+      const sorted = this.metaDecks.filter(d => d.included).sort((a, b) => {
         const cd = (catOrder[a.category] ?? 9) - (catOrder[b.category] ?? 9);
         if (cd !== 0) return cd;
         return this.editorSort === 'alpha'
           ? a.name.localeCompare(b.name)
           : b.meta_share - a.meta_share;
       });
+      return sorted.map((deck, i) => ({
+        ...deck,
+        catBorder: i === 0 || sorted[i - 1].category !== deck.category,
+      }));
     },
 
     decksInCategory(cat) {
       return this.includedMetaDecks().filter(d => d.category === cat);
+    },
+
+    matchupError(metaDeckId) {
+      const plan = (this.sideboardPlan?.plans || {})[metaDeckId] || {};
+      const inN  = (plan.in  || []).reduce((s, e) => s + e.quantity, 0);
+      const outN = (plan.out || []).reduce((s, e) => s + e.quantity, 0);
+      return (inN > 0 || outN > 0) && inN !== outN;
     },
 
     hasStaleOut(cardName) {
@@ -900,7 +900,9 @@ function app() {
       if (!this.sideboardPlan) return [];
       const real = (this.sideboardPlan.deck?.sideboard || []).map(c => ({ ...c, theoretical: false }));
       const theoretical = (this.sideboardPlan.theoretical_pool || []).map(c => ({ ...c, theoretical: true }));
-      return [...real, ...theoretical].sort((a, b) => a.name.localeCompare(b.name));
+      return [...real, ...theoretical]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((c, i) => ({ ...c, rowEven: i % 2 === 0 }));
     },
 
     sortedMainDeck() {
