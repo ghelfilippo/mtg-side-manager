@@ -26,6 +26,19 @@
     /* Inline cell input */
     .cell-input { width: 2rem; text-align: center; border: 1px solid #6366f1; border-radius: 2px; font-size: 0.75rem; }
 
+    /* Mana color pips */
+    .pip { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; font-size:9px; font-weight:700; border:1px solid rgba(0,0,0,.15); }
+    .pip-W { background:#f9fafb; color:#4b5563; }
+    .pip-U { background:#3b82f6; color:#fff; }
+    .pip-B { background:#1f2937; color:#d1d5db; }
+    .pip-R { background:#ef4444; color:#fff; }
+    .pip-G { background:#22c55e; color:#fff; }
+    .pip-C { background:#9ca3af; color:#fff; }
+
+    /* Deck card hover lift */
+    .deck-card { transition: transform .15s, box-shadow .15s; }
+    .deck-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,.13); }
+
     /* Print styles */
     @media print {
       .no-print { display: none !important; }
@@ -143,44 +156,84 @@
 </div>
 
 <!-- ===================== MY DECKS VIEW ===================== -->
-<div x-show="view==='decks'" class="p-4 no-print">
-  <div class="flex items-center gap-3 mb-4">
-    <h1 class="text-lg font-bold">I Miei Mazzi Pauper</h1>
-    <button @click="syncAllDecks()" :disabled="loading" class="px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 text-sm">
-      <span x-show="!loading">⟳ Sync da Archidekt</span>
-      <span x-show="loading">Sincronizzazione...</span>
+<div x-show="view==='decks'" class="no-print">
+  <!-- Header bar -->
+  <div class="px-6 pt-6 pb-4 flex items-center gap-3">
+    <h1 class="text-xl font-bold text-gray-800">I Miei Mazzi Pauper</h1>
+    <button @click="syncAllDecks()" :disabled="loading"
+      class="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium shadow-sm transition">
+      <span :class="loading ? 'animate-spin' : ''" class="inline-block">⟳</span>
+      <span x-text="loading ? 'Sincronizzazione...' : 'Sync da Archidekt'"></span>
     </button>
-    <span class="text-xs text-gray-400" x-text="myDecksLastSync ? 'Sync: ' + fmtDate(myDecksLastSync) : 'Mai sincronizzato'"></span>
-    <button @click="runXlsxImport()" class="px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 text-xs">📥 Importa side.xlsx</button>
+    <span class="text-xs text-gray-400" x-text="myDecksLastSync ? 'Aggiornato ' + fmtDate(myDecksLastSync) : 'Mai sincronizzato'"></span>
   </div>
 
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  <div class="px-6 pb-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
     <template x-for="deck in myDecks" :key="deck.id">
-      <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden hover:shadow-md transition cursor-pointer" @click="openEditor(deck)">
-        <!-- Deck artwork banner -->
-        <div class="relative h-24 bg-gray-200 overflow-hidden">
-          <img x-show="deck.image_url" :src="deck.image_url" alt="" class="w-full h-full object-cover object-top" loading="lazy" />
-          <div x-show="!deck.image_url" class="w-full h-full flex items-center justify-center text-gray-400 text-3xl">🃏</div>
-          <span x-show="hasStalePlan(deck)" class="absolute top-1 right-1 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full shadow">⚠ Side invalida</span>
-        </div>
-        <!-- Card body -->
-        <div class="p-3">
-          <h2 class="font-bold text-sm mb-1" x-text="deck.name"></h2>
-          <div class="text-xs text-gray-500 space-y-0.5">
-            <div>Maindeck: <span class="font-mono" x-text="(deck.main_deck || []).reduce((s,c)=>s+c.quantity,0) + ' carte'"></span></div>
-            <div>Sideboard: <span class="font-mono" x-text="(deck.sideboard || []).reduce((s,c)=>s+c.quantity,0) + '/15'"></span></div>
-            <div x-show="deck.last_synced" class="text-gray-400" x-text="'Sync: ' + fmtDate(deck.last_synced)"></div>
+      <div class="deck-card bg-white rounded-2xl shadow overflow-hidden cursor-pointer border border-gray-100" @click="openEditor(deck)">
+
+        <!-- Artwork banner with gradient overlay -->
+        <div class="relative h-36 bg-gradient-to-br from-gray-700 to-gray-900 overflow-hidden">
+          <img x-show="deck.image_url"
+               :src="deck.image_url" alt=""
+               class="w-full h-full object-cover object-center"
+               loading="lazy"
+               @error="$event.target.style.display='none'" />
+          <!-- Dark gradient overlay at bottom -->
+          <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent"></div>
+          <!-- Stale badge -->
+          <span x-show="hasStalePlan(deck)"
+            class="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full shadow font-medium">
+            ⚠ Side invalida
+          </span>
+          <!-- Deck name overlaid on image -->
+          <div class="absolute bottom-0 left-0 right-0 px-3 pb-2">
+            <h2 class="text-white font-bold text-base leading-tight drop-shadow" x-text="deck.name"></h2>
+            <!-- Mana color pips -->
+            <div class="flex gap-1 mt-1" x-show="(deck.colors || []).length > 0">
+              <template x-for="c in (deck.colors || [])">
+                <span :class="'pip pip-' + c" x-text="c"></span>
+              </template>
+            </div>
           </div>
-          <div class="mt-2 flex gap-2">
-            <button @click.stop="openEditor(deck)" class="flex-1 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-medium">✏️ Editor Side</button>
-            <a :href="deck.archidekt_url" target="_blank" @click.stop x-show="deck.archidekt_url" class="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-500 rounded text-xs" title="Apri su Archidekt">🔗</a>
-            <button @click.stop="syncSingleDeck(deck)" :disabled="!deck.archidekt_id" class="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded text-xs disabled:opacity-40" title="Sync singolo">⟳</button>
+        </div>
+
+        <!-- Card body -->
+        <div class="px-3 py-2.5">
+          <div class="flex justify-between text-xs text-gray-500 mb-2.5">
+            <span>
+              <span class="font-semibold text-gray-700" x-text="(deck.main_deck||[]).reduce((s,c)=>s+c.quantity,0)"></span>
+              <span class="text-gray-400"> main</span>
+            </span>
+            <span>
+              <span class="font-semibold"
+                :class="(deck.sideboard||[]).reduce((s,c)=>s+c.quantity,0) > 15 ? 'text-red-500' : 'text-gray-700'"
+                x-text="(deck.sideboard||[]).reduce((s,c)=>s+c.quantity,0) + '/15'"></span>
+              <span class="text-gray-400"> side</span>
+            </span>
+            <span class="text-gray-300" x-show="deck.last_synced" x-text="fmtDate(deck.last_synced)"></span>
+          </div>
+
+          <div class="flex gap-1.5">
+            <button @click.stop="openEditor(deck)"
+              class="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition shadow-sm">
+              Editor Side
+            </button>
+            <a :href="deck.archidekt_url" target="_blank" @click.stop
+               x-show="deck.archidekt_url"
+               class="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-500 rounded-lg text-sm transition"
+               title="Apri su Archidekt">↗</a>
+            <button @click.stop="syncSingleDeck(deck)" :disabled="!deck.archidekt_id"
+              class="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-sm disabled:opacity-30 transition"
+              title="Sync singolo">⟳</button>
           </div>
         </div>
       </div>
     </template>
-    <div x-show="myDecks.length === 0" class="col-span-3 text-center py-10 text-gray-400">
-      Nessun mazzo. Premi "Sync da Archidekt" o "Importa side.xlsx".
+    <div x-show="myDecks.length === 0" class="col-span-4 text-center py-16 text-gray-400">
+      <div class="text-4xl mb-3">🃏</div>
+      <p class="font-medium">Nessun mazzo trovato.</p>
+      <p class="text-sm mt-1">Premi "Sync da Archidekt" per caricare i tuoi mazzi.</p>
     </div>
   </div>
 </div>
@@ -493,22 +546,6 @@ function app() {
       }
     },
 
-    async runXlsxImport() {
-      this.loading = true;
-      this.statusMsg = 'Importazione side.xlsx...';
-      try {
-        const r = await fetch('/api/import/xlsx', { method: 'POST' });
-        const d = await r.json();
-        await this.loadMeta();
-        await this.loadMyDecks();
-        this.showToast(`Importati ${d.imported_decks} mazzi, ${d.imported_opponent_decks} avversari`);
-      } catch (e) {
-        this.showToast('Errore import: ' + e.message);
-      } finally {
-        this.loading = false;
-        this.statusMsg = '';
-      }
-    },
 
     async openEditor(deck) {
       this.activeDeckId = deck.id;

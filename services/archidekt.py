@@ -32,7 +32,13 @@ async def fetch_folder_deck_ids() -> list[dict]:
                 result = []
                 for d in decks:
                     img = d.get("customFeatured") or d.get("featured") or ""
-                    result.append({"id": d["id"], "name": d["name"], "image_url": img})
+                    colors = [c for c, v in (d.get("colors") or {}).items() if v > 0]
+                    result.append({
+                        "id": d["id"],
+                        "name": d["name"],
+                        "image_url": img,
+                        "colors": colors,
+                    })
                 return result
         except (json.JSONDecodeError, KeyError):
             pass
@@ -96,6 +102,7 @@ async def sync_all_decks(existing_decks: list[dict]) -> list[dict]:
             "archidekt_id": fd["id"],
             "name": fd["name"],
             "image_url": fd.get("image_url", ""),
+            "colors": fd.get("colors", []),
             "archidekt_url": f"https://archidekt.com/decks/{fd['id']}",
             "last_synced": datetime.now(timezone.utc).isoformat(),
             **cards,
