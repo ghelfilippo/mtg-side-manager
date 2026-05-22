@@ -156,22 +156,26 @@
 
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
     <template x-for="deck in myDecks" :key="deck.id">
-      <div class="bg-white border border-gray-200 rounded-lg shadow-sm p-4 hover:shadow-md transition cursor-pointer" @click="openEditor(deck)">
-        <div class="flex justify-between items-start mb-2">
-          <h2 class="font-bold text-base capitalize" x-text="deck.name"></h2>
-          <span x-show="hasStalePlan(deck)" class="bg-red-100 text-red-600 text-xs px-2 py-0.5 rounded-full">⚠ Side invalida</span>
+      <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden hover:shadow-md transition cursor-pointer" @click="openEditor(deck)">
+        <!-- Deck artwork banner -->
+        <div class="relative h-24 bg-gray-200 overflow-hidden">
+          <img x-show="deck.image_url" :src="deck.image_url" alt="" class="w-full h-full object-cover object-top" loading="lazy" />
+          <div x-show="!deck.image_url" class="w-full h-full flex items-center justify-center text-gray-400 text-3xl">🃏</div>
+          <span x-show="hasStalePlan(deck)" class="absolute top-1 right-1 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full shadow">⚠ Side invalida</span>
         </div>
-        <div class="text-xs text-gray-500 space-y-1">
-          <div>Maindeck: <span class="font-mono" x-text="(deck.main_deck || []).reduce((s,c)=>s+c.quantity,0) + ' carte'"></span></div>
-          <div>Sideboard: <span class="font-mono" x-text="(deck.sideboard || []).reduce((s,c)=>s+c.quantity,0) + '/15'"></span></div>
-          <div x-show="deck.last_synced" class="text-gray-400" x-text="'Sync: ' + fmtDate(deck.last_synced)"></div>
-          <div x-show="deck.archidekt_url">
-            <a :href="deck.archidekt_url" target="_blank" @click.stop class="text-indigo-500 hover:underline">🔗 Archidekt</a>
+        <!-- Card body -->
+        <div class="p-3">
+          <h2 class="font-bold text-sm mb-1" x-text="deck.name"></h2>
+          <div class="text-xs text-gray-500 space-y-0.5">
+            <div>Maindeck: <span class="font-mono" x-text="(deck.main_deck || []).reduce((s,c)=>s+c.quantity,0) + ' carte'"></span></div>
+            <div>Sideboard: <span class="font-mono" x-text="(deck.sideboard || []).reduce((s,c)=>s+c.quantity,0) + '/15'"></span></div>
+            <div x-show="deck.last_synced" class="text-gray-400" x-text="'Sync: ' + fmtDate(deck.last_synced)"></div>
           </div>
-        </div>
-        <div class="mt-3 flex gap-2">
-          <button @click.stop="openEditor(deck)" class="flex-1 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-medium">✏️ Editor Side</button>
-          <button @click.stop="syncSingleDeck(deck)" :disabled="!deck.archidekt_id" class="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded text-xs disabled:opacity-40" title="Sync singolo">⟳</button>
+          <div class="mt-2 flex gap-2">
+            <button @click.stop="openEditor(deck)" class="flex-1 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-medium">✏️ Editor Side</button>
+            <a :href="deck.archidekt_url" target="_blank" @click.stop x-show="deck.archidekt_url" class="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-500 rounded text-xs" title="Apri su Archidekt">🔗</a>
+            <button @click.stop="syncSingleDeck(deck)" :disabled="!deck.archidekt_id" class="px-2 py-1 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded text-xs disabled:opacity-40" title="Sync singolo">⟳</button>
+          </div>
         </div>
       </div>
     </template>

@@ -10,36 +10,41 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 
 
 async def fetch_folder_deck_ids() -> list[dict]:
-    """Scrape folder page and return [{id, name}] for all decks."""
+    """Scrape folder page and return [{id, name, image_url}] for all decks."""
     async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
         r = await client.get(FOLDER_URL, headers=HEADERS)
     html = r.text
 
-    # Archidekt is Next.js — deck data lives in __NEXT_DATA__ JSON blob
     match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
     if match:
         try:
             next_data = json.loads(match.group(1))
-            # Navigate props.pageProps structure
-            page_props = next_data.get("props", {}).get("pageProps", {})
-            folder = page_props.get("folder", {})
-            decks = folder.get("decks", [])
+            # Correct path: props.pageProps.redux.folders.rootFolder.decks
+            root_folder = (
+                next_data.get("props", {})
+                .get("pageProps", {})
+                .get("redux", {})
+                .get("folders", {})
+                .get("rootFolder", {})
+            )
+            decks = root_folder.get("decks", [])
             if decks:
-                return [{"id": d["id"], "name": d["name"]} for d in decks]
+                result = []
+                for d in decks:
+                    img = d.get("customFeatured") or d.get("featured") or ""
+                    result.append({"id": d["id"], "name": d["name"], "image_url": img})
+                return result
         except (json.JSONDecodeError, KeyError):
             pass
 
     # Fallback: regex scan for deck links in HTML
     deck_ids = re.findall(r'/decks/(\d+)[/"?]', html)
-    names = re.findall(r'"name"\s*:\s*"([^"]+)"', html)
-
-    seen = []
+    seen: list[str] = []
     result = []
-    for i, did in enumerate(dict.fromkeys(deck_ids)):  # deduplicate, preserve order
-        name = names[i] if i < len(names) else f"Deck {did}"
-        result.append({"id": int(did), "name": name})
-        seen.append(did)
-
+    for did in deck_ids:
+        if did not in seen:
+            seen.append(did)
+            result.append({"id": int(did), "name": f"Deck {did}", "image_url": ""})
     return result
 
 
@@ -90,6 +95,7 @@ async def sync_all_decks(existing_decks: list[dict]) -> list[dict]:
             "id": existing.get("id", f"archidekt-{fd['id']}"),
             "archidekt_id": fd["id"],
             "name": fd["name"],
+            "image_url": fd.get("image_url", ""),
             "archidekt_url": f"https://archidekt.com/decks/{fd['id']}",
             "last_synced": datetime.now(timezone.utc).isoformat(),
             **cards,
