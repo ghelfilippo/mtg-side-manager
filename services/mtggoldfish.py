@@ -14,10 +14,10 @@ HEADERS = {
 
 # Maps MTGGoldfish mana symbol CSS class -> our color code
 MANA_CSS_TO_COLOR = {"ms-w": "W", "ms-u": "U", "ms-b": "B", "ms-r": "R", "ms-g": "G"}
-MIN_META_SHARE = 0.2
+DEFAULT_MIN_META_SHARE = 0.2
 
 
-async def fetch_meta() -> dict:
+async def fetch_meta(min_share: float = DEFAULT_MIN_META_SHARE) -> dict:
     """Scrape MTGGoldfish Pauper metagame page and return structured data."""
     async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
         r = await client.get(METAGAME_URL, headers=HEADERS)
@@ -70,7 +70,7 @@ async def fetch_meta() -> dict:
                     meta_share = float(m.group(1))
 
             # Filter by minimum meta share
-            if meta_share < MIN_META_SHARE:
+            if meta_share < min_share:
                 continue
 
             # Colors from mana cost icons

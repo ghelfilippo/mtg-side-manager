@@ -27,7 +27,7 @@ def get_meta_decks():
 
 
 @router.post("/fetch")
-async def fetch_meta_decks():
+async def fetch_meta_decks(min_share: float = 0.2):
     existing = load("meta_decks.json")
     user_overrides = {
         d["id"]: {
@@ -37,7 +37,7 @@ async def fetch_meta_decks():
         for d in existing.get("decks", [])
     }
 
-    fresh = await fetch_meta_goldfish()
+    fresh = await fetch_meta_goldfish(min_share=min_share)
     if "error" in fresh:
         raise HTTPException(status_code=502, detail=fresh["error"])
 

@@ -71,6 +71,12 @@
   <!-- Header bar -->
   <div class="flex flex-wrap items-center gap-3 mb-5">
     <h1 class="text-xl font-bold text-gray-800">Meta Deck Pauper</h1>
+    <div class="flex items-center gap-1 bg-white border border-gray-300 rounded-full px-3 py-1 text-xs">
+      <span class="text-gray-400">min</span>
+      <input x-model.number="metaMinShare" type="number" min="0" max="10" step="0.1"
+        class="w-12 text-center font-mono text-xs border-none outline-none bg-transparent" />
+      <span class="text-gray-400">%</span>
+    </div>
     <button @click="fetchMeta()" :disabled="loading"
       class="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-50 text-sm font-medium shadow-sm transition">
       <span :class="loading ? 'animate-spin' : ''" class="inline-block">⟳</span>
@@ -528,6 +534,7 @@ function app() {
     metaSearch: '',
     metaColorFilter: [],
     metaShowExcluded: true,
+    metaMinShare: 0.2,
     customDeckModal: { open: false, name: '', category: 'Aggro' },
 
     // My Decks
@@ -622,7 +629,7 @@ function app() {
       this.loading = true;
       this.statusMsg = 'Aggiornamento meta...';
       try {
-        const r = await fetch('/api/meta/fetch', { method: 'POST' });
+        const r = await fetch(`/api/meta/fetch?min_share=${this.metaMinShare}`, { method: 'POST' });
         const d = await r.json();
         this.metaDecks = d.decks || [];
         this.metaLastFetched = d.last_fetched;
