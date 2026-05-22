@@ -15,12 +15,14 @@ class MetaDeckUpdate(BaseModel):
     included: Optional[bool] = None
     name: Optional[str] = None
     image_url: Optional[str] = None
+    arch_url: Optional[str] = None
 
 
 class CustomDeck(BaseModel):
     name: str
     category: str = "Aggro"
     image_url: Optional[str] = None
+    arch_url: Optional[str] = None
 
 
 @router.get("/decks")
@@ -74,6 +76,8 @@ def update_meta_deck(deck_id: str, update: MetaDeckUpdate):
                 deck["name"] = update.name
             if update.image_url is not None and deck.get("source") == "custom":
                 deck["image_url"] = update.image_url
+            if update.arch_url is not None and deck.get("source") == "custom":
+                deck["arch_url"] = update.arch_url
             save("meta_decks.json", data)
             return deck
     raise HTTPException(status_code=404, detail="Deck not found")
@@ -92,7 +96,7 @@ def add_custom_deck(body: CustomDeck):
         "category": body.category,
         "meta_share": 0.0,
         "image_url": body.image_url or "",
-        "arch_url": "",
+        "arch_url": (body.arch_url or "").strip(),
         "colors": [],
         "included": True,
         "source": "custom",
