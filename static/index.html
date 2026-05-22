@@ -83,14 +83,35 @@
     <span class="text-xs text-gray-400" x-text="metaLastFetched ? 'Aggiornato: ' + fmtDate(metaLastFetched) : 'Mai sincronizzato'"></span>
   </div>
 
-  <!-- Category filter tabs -->
-  <div class="flex gap-2 mb-5">
-    <template x-for="cat in ['Tutti','Aggro','Midrange','Control','Combo']">
-      <button @click="metaFilter=cat"
-        :class="metaFilter===cat ? 'bg-indigo-100 border-indigo-400 font-semibold text-indigo-700' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'"
-        class="px-3 py-1 border rounded text-xs transition" x-text="cat">
-      </button>
-    </template>
+  <!-- Filters row -->
+  <div class="flex flex-wrap items-center gap-3 mb-5">
+    <!-- Category tabs -->
+    <div class="flex gap-1.5">
+      <template x-for="cat in ['Tutti','Aggro','Midrange','Control','Combo']">
+        <button @click="metaFilter=cat"
+          :class="metaFilter===cat ? 'bg-indigo-100 border-indigo-400 font-semibold text-indigo-700' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'"
+          class="px-3 py-1 border rounded text-xs transition" x-text="cat">
+        </button>
+      </template>
+    </div>
+
+    <!-- Color filter pips -->
+    <div class="flex gap-1">
+      <template x-for="c in ['W','U','B','R','G']">
+        <button @click="toggleColorFilter(c)"
+          :class="['pip', 'pip-' + c, metaColorFilter.includes(c) ? 'ring-2 ring-offset-1 ring-indigo-500 scale-110' : 'opacity-50 hover:opacity-80']"
+          class="transition-all" :title="c" x-text="c">
+        </button>
+      </template>
+    </div>
+
+    <!-- Name search -->
+    <div class="relative ml-auto">
+      <input x-model="metaSearch" type="text" placeholder="Cerca mazzo…"
+        class="border border-gray-200 rounded-full pl-3 pr-7 py-1 text-xs bg-white focus:outline-none focus:border-indigo-400 w-44" />
+      <button x-show="metaSearch" @click="metaSearch=''"
+        class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm leading-none">✕</button>
+    </div>
   </div>
 
   <!-- Card grid -->
@@ -102,7 +123,8 @@
         <!-- Image area -->
         <div class="relative h-28 bg-gradient-to-br from-gray-700 to-gray-900 overflow-hidden">
           <img x-show="deck.image_url" :src="deck.image_url" alt=""
-               class="w-full h-full object-cover object-top"
+               class="w-full h-full object-cover scale-[1.15]"
+               style="object-position: center 28%;"
                loading="lazy" @error="$event.target.style.display='none'" />
           <div x-show="!deck.image_url" class="absolute inset-0 flex items-center justify-center text-4xl text-gray-600">🃏</div>
           <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
@@ -496,6 +518,8 @@ function app() {
     metaDecks: [],
     metaLastFetched: null,
     metaFilter: 'Tutti',
+    metaSearch: '',
+    metaColorFilter: [],
     customDeckModal: { open: false, name: '', category: 'Aggro' },
 
     // My Decks
@@ -604,8 +628,22 @@ function app() {
     },
 
     filteredMetaDecks() {
-      if (this.metaFilter === 'Tutti') return this.metaDecks;
-      return this.metaDecks.filter(d => d.category === this.metaFilter);
+      let decks = this.metaDecks;
+      if (this.metaFilter !== 'Tutti') decks = decks.filter(d => d.category === this.metaFilter);
+      if (this.metaSearch.trim()) {
+        const q = this.metaSearch.trim().toLowerCase();
+        decks = decks.filter(d => d.name.toLowerCase().includes(q));
+      }
+      if (this.metaColorFilter.length > 0) {
+        decks = decks.filter(d => this.metaColorFilter.some(c => (d.colors || []).includes(c)));
+      }
+      return decks;
+    },
+
+    toggleColorFilter(c) {
+      const i = this.metaColorFilter.indexOf(c);
+      if (i >= 0) this.metaColorFilter.splice(i, 1);
+      else this.metaColorFilter.push(c);
     },
 
     metaShareBadge(pct) {
