@@ -82,7 +82,7 @@
       <span :class="loading ? 'animate-spin' : ''" class="inline-block">⟳</span>
       <span x-text="loading ? 'Aggiornamento...' : 'Aggiorna da MTGGoldfish'"></span>
     </button>
-    <button @click="customDeckModal = { open: true, name: '', category: 'Aggro' }"
+    <button @click="customDeckModal = { open: true, name: '', category: 'Aggro', cardImage: '' }"
       class="flex items-center gap-1.5 px-4 py-1.5 bg-white border border-gray-300 rounded-full hover:bg-gray-50 text-sm font-medium transition">
       + Mazzo custom
     </button>
@@ -179,6 +179,8 @@
             <a x-show="deck.arch_url" :href="deck.arch_url" target="_blank"
               title="Apri su MTGGoldfish"
               class="text-gray-400 hover:text-indigo-600 transition text-sm leading-none shrink-0">↗</a>
+            <button x-show="deck.source === 'custom'" @click="openImageModal(deck)"
+              class="text-gray-400 hover:text-indigo-600 transition text-sm leading-none shrink-0" title="Cambia immagine">✏</button>
             <button x-show="deck.source === 'custom'" @click="deleteCustomDeck(deck.id)"
               class="text-red-400 hover:text-red-600 transition text-sm leading-none shrink-0" title="Elimina">✕</button>
           </div>
@@ -497,11 +499,32 @@
   </div>
 </div>
 
+<!-- Change image modal (custom decks) -->
+<div x-show="imageModal.open" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print" @click.self="imageModal.open=false">
+  <div class="bg-white rounded-lg shadow-xl w-80 p-4">
+    <h2 class="font-bold mb-1">Cambia immagine</h2>
+    <p class="text-xs text-gray-400 mb-3">Scrivi il nome di una carta Magic — useremo l'illustrazione da Scryfall.</p>
+    <input x-model="imageModal.cardName" type="text" placeholder="es. Lightning Bolt"
+      class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3"
+      @keydown.enter="confirmUpdateImage()" x-ref="imageInput" />
+    <div x-show="imageModal.error" class="text-red-500 text-xs mb-2" x-text="imageModal.error"></div>
+    <div class="flex gap-2 justify-end">
+      <button @click="imageModal.open=false" class="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-50">Annulla</button>
+      <button @click="confirmUpdateImage()" :disabled="imageModal.loading"
+        class="px-3 py-1 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50"
+        x-text="imageModal.loading ? 'Ricerca...' : 'Applica'"></button>
+    </div>
+  </div>
+</div>
+
 <!-- Add custom meta deck modal -->
 <div x-show="customDeckModal.open" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print" @click.self="customDeckModal.open=false">
   <div class="bg-white rounded-lg shadow-xl w-80 p-4">
     <h2 class="font-bold mb-3">Aggiungi mazzo custom</h2>
     <input x-model="customDeckModal.name" type="text" placeholder="Nome mazzo"
+      class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2"
+      @keydown.enter="confirmAddCustomDeck()" />
+    <input x-model="customDeckModal.cardImage" type="text" placeholder="Carta immagine (es. Lightning Bolt)"
       class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2"
       @keydown.enter="confirmAddCustomDeck()" />
     <select x-model="customDeckModal.category" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3 bg-white">
@@ -535,7 +558,8 @@ function app() {
     metaColorFilter: [],
     metaShowExcluded: true,
     metaMinShare: 0.2,
-    customDeckModal: { open: false, name: '', category: 'Aggro' },
+    customDeckModal: { open: false, name: '', category: 'Aggro', cardImage: '' },
+    imageModal: { open: false, deckId: '', cardName: '', loading: false, error: '' },
 
     // My Decks
     myDecks: [],
@@ -678,14 +702,47 @@ function app() {
       if (deck) Object.assign(deck, patch);
     },
 
+    async resolveCardImageUrl(cardName) {
+      const r = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cardName)}`);
+      if (!r.ok) throw new Error('Carta non trovata: ' + cardName);
+      const d = await r.json();
+      return (d.image_uris?.art_crop) || (d.card_faces?.[0]?.image_uris?.art_crop) || '';
+    },
+
+    openImageModal(deck) {
+      this.imageModal = { open: true, deckId: deck.id, cardName: '', loading: false, error: '' };
+      this.$nextTick(() => this.$refs.imageInput?.focus());
+    },
+
+    async confirmUpdateImage() {
+      if (!this.imageModal.cardName.trim()) return;
+      this.imageModal.loading = true;
+      this.imageModal.error = '';
+      try {
+        const url = await this.resolveCardImageUrl(this.imageModal.cardName.trim());
+        if (!url) throw new Error('Immagine non disponibile per questa carta');
+        await this.updateMetaDeck(this.imageModal.deckId, { image_url: url });
+        this.imageModal.open = false;
+        this.showToast('Immagine aggiornata');
+      } catch (e) {
+        this.imageModal.error = e.message;
+      } finally {
+        this.imageModal.loading = false;
+      }
+    },
+
     async confirmAddCustomDeck() {
-      const { name, category } = this.customDeckModal;
+      const { name, category, cardImage } = this.customDeckModal;
       if (!name.trim()) return;
+      let image_url = '';
+      if (cardImage.trim()) {
+        try { image_url = await this.resolveCardImageUrl(cardImage.trim()); } catch (_) {}
+      }
       try {
         const r = await fetch('/api/meta/decks/custom', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name.trim(), category }),
+          body: JSON.stringify({ name: name.trim(), category, image_url }),
         });
         if (!r.ok) {
           const e = await r.json();
