@@ -76,8 +76,7 @@ async def sync_deck(deck_id: int) -> dict:
             raw_cats = card_entry.get("categories", [])
             categories = [c.get("name", "") if isinstance(c, dict) else str(c) for c in raw_cats]
 
-            non_side_cats = [c for c in categories if c and c != "Sideboard"]
-            is_sideboard = "Sideboard" in categories and not non_side_cats
+            is_sideboard = "Sideboard" in categories
             target = side_map if is_sideboard else main_map
             if name in target:
                 target[name]["quantity"] += qty
