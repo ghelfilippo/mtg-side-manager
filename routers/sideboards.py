@@ -1,3 +1,4 @@
+import copy
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -13,24 +14,20 @@ class CardEntry(BaseModel):
     quantity: int
 
 
-class MatchupPlan(BaseModel):
-    out: list[CardEntry] = []
-    in_: list[CardEntry] = []
-    notes: str = ""
-
-    model_config = {"populate_by_name": True}
-
-    def to_dict(self):
-        return {"out": [e.model_dump() for e in self.out], "in": [e.model_dump() for e in self.in_], "notes": self.notes}
-
-
 class TheoreticalCard(BaseModel):
     card: str
     quantity: int
 
 
+class TheoSideCard(BaseModel):
+    card: str
+    quantity: int
+
+
+# ---------- helpers ----------
+
 def _valid_names(deck, theoretical):
-    """Lowercased name sets: (main deck cards, valid IN cards = sideboard + theoretical)."""
+    """Lowercased name sets: (main deck cards, valid IN cards = sideboard + legacy theoretical)."""
     main = {c["name"].lower() for c in (deck or {}).get("main_deck", [])}
     side = {c["name"].lower() for c in (deck or {}).get("sideboard", [])}
     theo = {t.get("card", "").lower() for t in (theoretical or [])}
@@ -46,25 +43,77 @@ def _clean_plan(plan, main_names, valid_in):
     }
 
 
+def _theoretical_sideboard(sb_data: dict, deck: Optional[dict], deck_id: str) -> list:
+    """Return the theoretical sideboard for a deck.
+
+    If a stored override exists, return it. Otherwise return a fresh fork from the
+    real deck sideboard (plus any legacy theoretical_pool entries).
+    """
+    overrides = sb_data.get("theoretical_sideboard", {})
+    if deck_id in overrides:
+        return list(overrides[deck_id])
+    base = [dict(c) for c in (deck or {}).get("sideboard", [])]
+    legacy = sb_data.get("theoretical_pool", {}).get(deck_id, [])
+    seen = {c["name"].lower() for c in base}
+    for t in legacy:
+        name = t.get("card", "")
+        if name and name.lower() not in seen:
+            base.append({"name": name, "quantity": t.get("quantity", 1), "types": []})
+            seen.add(name.lower())
+    return base
+
+
+def _plans_for_mode(sb_data: dict, deck_id: str, mode: str) -> dict:
+    """Read-only access to the plans dict for a deck, in a given mode.
+
+    For theoretical mode, if no theoretical_plans entry exists for this deck,
+    fall back to the official plans as a starting baseline (not persisted).
+    """
+    if mode == "theoretical":
+        theo_all = sb_data.get("theoretical_plans", {})
+        if deck_id in theo_all:
+            return theo_all[deck_id]
+    return sb_data.get("plans", {}).get(deck_id, {})
+
+
+def _plans_collection_rw(sb_data: dict, mode: str) -> dict:
+    """Mutable plans collection (top-level dict keyed by deck_id) for write operations."""
+    if mode == "theoretical":
+        return sb_data.setdefault("theoretical_plans", {})
+    return sb_data.setdefault("plans", {})
+
+
+# ---------- main GET ----------
+
 @router.get("/{deck_id}")
-def get_sideboard_plan(deck_id: str):
+def get_sideboard_plan(deck_id: str, mode: str = "official"):
     sb_data = load("sideboards.json")
     my_data = load("my_decks.json")
 
     deck = next((d for d in my_data.get("decks", []) if str(d.get("id")) == deck_id), None)
-    theoretical = sb_data.get("theoretical_pool", {}).get(deck_id, [])
-    main_names, valid_in = _valid_names(deck, theoretical)
 
-    plans = sb_data.get("plans", {}).get(deck_id, {})
+    if mode == "theoretical":
+        side = _theoretical_sideboard(sb_data, deck, deck_id)
+        if deck is not None:
+            deck = {**deck, "sideboard": side}
+        legacy_theo = []  # theoretical mode owns its sideboard; no legacy pool here
+    else:
+        legacy_theo = sb_data.get("theoretical_pool", {}).get(deck_id, [])
+
+    plans = _plans_for_mode(sb_data, deck_id, mode)
+    main_names, valid_in = _valid_names(deck, legacy_theo)
     cleaned = {mid: _clean_plan(p, main_names, valid_in) for mid, p in plans.items()}
 
     return {
         "deck_id": deck_id,
+        "mode": mode,
         "plans": cleaned,
-        "theoretical_pool": theoretical,
+        "theoretical_pool": sb_data.get("theoretical_pool", {}).get(deck_id, []),  # legacy
         "deck": deck,
     }
 
+
+# ---------- legacy theoretical_pool (kept for backward compat) ----------
 
 @router.get("/{deck_id}/theoretical")
 def get_theoretical_pool(deck_id: str):
@@ -96,25 +145,153 @@ def remove_theoretical_card(deck_id: str, card_name: str):
     return {"deleted": True}
 
 
-@router.put("/{deck_id}/{meta_deck_id:path}")
-def set_matchup_plan(deck_id: str, meta_deck_id: str, body: dict):
+# ---------- theoretical mode sideboard (new) ----------
+
+@router.post("/{deck_id}/theoretical-side")
+def upsert_theoretical_side(deck_id: str, body: TheoSideCard):
+    """Add or update a card in the theoretical sideboard. quantity<=0 removes it."""
     sb_data = load("sideboards.json")
-    if deck_id not in sb_data["plans"]:
-        sb_data["plans"][deck_id] = {}
-    sb_data["plans"][deck_id][meta_deck_id] = body
+    my_data = load("my_decks.json")
+    deck = next((d for d in my_data.get("decks", []) if str(d.get("id")) == deck_id), None)
+    side = _theoretical_sideboard(sb_data, deck, deck_id)
+
+    name_l = body.card.lower()
+    existing = next((c for c in side if c["name"].lower() == name_l), None)
+    if body.quantity <= 0:
+        if existing:
+            side.remove(existing)
+    elif existing:
+        existing["quantity"] = body.quantity
+    else:
+        side.append({"name": body.card, "quantity": body.quantity, "types": []})
+
+    sb_data.setdefault("theoretical_sideboard", {})[deck_id] = side
     save("sideboards.json", sb_data)
-    return sb_data["plans"][deck_id][meta_deck_id]
+    return {"sideboard": side}
+
+
+@router.delete("/{deck_id}/theoretical-side/{card_name:path}")
+def remove_theoretical_side(deck_id: str, card_name: str):
+    sb_data = load("sideboards.json")
+    my_data = load("my_decks.json")
+    deck = next((d for d in my_data.get("decks", []) if str(d.get("id")) == deck_id), None)
+    side = _theoretical_sideboard(sb_data, deck, deck_id)
+    name_l = card_name.lower()
+    side = [c for c in side if c["name"].lower() != name_l]
+    sb_data.setdefault("theoretical_sideboard", {})[deck_id] = side
+    save("sideboards.json", sb_data)
+    return {"sideboard": side}
+
+
+@router.post("/{deck_id}/promote-theoretical")
+def promote_theoretical_sideboard(deck_id: str):
+    """Promote the theoretical state (sideboard + matchup plans) to official.
+
+    Only allowed if the theoretical sideboard is valid (sum of quantities == 15).
+    The theoretical_sideboard and theoretical_plans are left in place — the user
+    can keep iterating, the official is now a snapshot.
+    """
+    sb_data = load("sideboards.json")
+    my_data = load("my_decks.json")
+    deck_idx = next(
+        (i for i, d in enumerate(my_data.get("decks", [])) if str(d.get("id")) == deck_id),
+        None,
+    )
+    if deck_idx is None:
+        raise HTTPException(status_code=404, detail="Mazzo non trovato")
+    deck = my_data["decks"][deck_idx]
+    side = _theoretical_sideboard(sb_data, deck, deck_id)
+    total = sum(c.get("quantity", 0) for c in side)
+    if total != 15:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Sideboard teorico ha {total} carte (servono esattamente 15)",
+        )
+
+    # 1) Promote sideboard cards
+    new_side = [
+        {"name": c["name"], "quantity": c["quantity"], "types": c.get("types", [])}
+        for c in side
+    ]
+    my_data["decks"][deck_idx]["sideboard"] = new_side
+    save("my_decks.json", my_data)
+
+    # 2) Promote matchup plans (theoretical → official) — deep copy so the two
+    #    collections stay fully independent for future edits.
+    theo_plans = sb_data.get("theoretical_plans", {}).get(deck_id)
+    plans_promoted = 0
+    if theo_plans:
+        sb_data.setdefault("plans", {})[deck_id] = copy.deepcopy(theo_plans)
+        plans_promoted = len(theo_plans)
+        save("sideboards.json", sb_data)
+
+    return {
+        "promoted": True,
+        "sideboard": new_side,
+        "total": total,
+        "plans_promoted": plans_promoted,
+    }
+
+
+@router.post("/{deck_id}/reset-theoretical")
+def reset_theoretical_from_official(deck_id: str):
+    """Overwrite the theoretical state with the current official state.
+
+    Copies the official sideboard and matchup plans into theoretical_sideboard
+    and theoretical_plans, replacing whatever was there before.
+    """
+    sb_data = load("sideboards.json")
+    my_data = load("my_decks.json")
+    deck = next((d for d in my_data.get("decks", []) if str(d.get("id")) == deck_id), None)
+    if deck is None:
+        raise HTTPException(status_code=404, detail="Mazzo non trovato")
+
+    official_side = [
+        {"name": c["name"], "quantity": c["quantity"], "types": c.get("types", [])}
+        for c in deck.get("sideboard", [])
+    ]
+    official_plans = sb_data.get("plans", {}).get(deck_id, {})
+
+    sb_data.setdefault("theoretical_sideboard", {})[deck_id] = official_side
+    sb_data.setdefault("theoretical_plans", {})[deck_id] = copy.deepcopy(official_plans)
+    save("sideboards.json", sb_data)
+
+    return {
+        "reset": True,
+        "total": sum(c["quantity"] for c in official_side),
+        "plans_copied": len(official_plans),
+    }
+
+
+# ---------- plans PUT/DELETE (mode-aware) ----------
+
+@router.put("/{deck_id}/{meta_deck_id:path}")
+def set_matchup_plan(deck_id: str, meta_deck_id: str, body: dict, mode: str = "official"):
+    sb_data = load("sideboards.json")
+    coll = _plans_collection_rw(sb_data, mode)
+    if deck_id not in coll:
+        # On first write to theoretical, fork plans from official as baseline
+        if mode == "theoretical":
+            coll[deck_id] = {k: dict(v) for k, v in sb_data.get("plans", {}).get(deck_id, {}).items()}
+        else:
+            coll[deck_id] = {}
+    coll[deck_id][meta_deck_id] = body
+    save("sideboards.json", sb_data)
+    return coll[deck_id][meta_deck_id]
 
 
 @router.delete("/{deck_id}/{meta_deck_id:path}")
-def delete_matchup_plan(deck_id: str, meta_deck_id: str):
+def delete_matchup_plan(deck_id: str, meta_deck_id: str, mode: str = "official"):
     sb_data = load("sideboards.json")
-    plans = sb_data.get("plans", {}).get(deck_id, {})
+    coll = _plans_collection_rw(sb_data, mode)
+    plans = coll.get(deck_id, {})
     if meta_deck_id in plans:
         del plans[meta_deck_id]
         save("sideboards.json", sb_data)
     return {"deleted": True}
 
+
+# ---------- print (always official) ----------
 
 @router.get("/{deck_id}/print")
 def get_print_data(deck_id: str):
@@ -153,17 +330,27 @@ def get_print_data(deck_id: str):
     return {"deck_id": deck_id, "deck_name": deck["name"] if deck else deck_id, "matchups": result}
 
 
+# ---------- analysis (mode-aware) ----------
+
 @router.get("/{deck_id}/analysis")
-def get_sideboard_analysis(deck_id: str):
-    """Aggregate all matchup plans: how often each card is sided in / out."""
+def get_sideboard_analysis(deck_id: str, mode: str = "official"):
+    """Aggregate matchup plans: how often each card is sided in / out, per mode."""
     sb_data = load("sideboards.json")
     meta_data = load("meta_decks.json")
     meta_by_id = {d["id"]: d for d in meta_data.get("decks", [])}
-    plans = sb_data.get("plans", {}).get(deck_id, {})
     my_data = load("my_decks.json")
     deck = next((d for d in my_data.get("decks", []) if str(d.get("id")) == deck_id), None)
-    theoretical = sb_data.get("theoretical_pool", {}).get(deck_id, [])
-    main_names, valid_in = _valid_names(deck, theoretical)
+
+    if mode == "theoretical":
+        side = _theoretical_sideboard(sb_data, deck, deck_id)
+        if deck is not None:
+            deck = {**deck, "sideboard": side}
+        legacy_theo = []
+    else:
+        legacy_theo = sb_data.get("theoretical_pool", {}).get(deck_id, [])
+
+    plans = _plans_for_mode(sb_data, deck_id, mode)
+    main_names, valid_in = _valid_names(deck, legacy_theo)
 
     in_counter: dict = {}
     out_counter: dict = {}
@@ -197,6 +384,7 @@ def get_sideboard_analysis(deck_id: str):
 
     return {
         "deck_id": deck_id,
+        "mode": mode,
         "total_matchups": total,
         "most_in": finalize(in_counter),
         "most_out": finalize(out_counter),

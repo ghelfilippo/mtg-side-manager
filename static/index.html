@@ -340,11 +340,42 @@
 
 <!-- ===================== EDITOR VIEW ===================== -->
 <div x-show="view==='editor' && sideboardPlan" class="no-print" x-cloak>
-  <div class="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-2 sticky top-[3.7rem] z-40 shadow-sm">
+  <div class="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-2 sticky top-[3.7rem] z-40 shadow-sm"
+       :class="editorMode==='theoretical' ? 'border-amber-300 bg-amber-50/40' : ''">
     <h1 class="font-bold text-sm capitalize" x-text="activeDeckName + ' — Sideboard'"></h1>
+
+    <!-- Mode toggle: official vs theoretical -->
+    <div class="flex bg-gray-100 rounded-md p-0.5 border border-gray-200 ml-1">
+      <button @click="setEditorMode('official')"
+        :class="editorMode==='official' ? 'bg-indigo-600 text-white shadow' : 'text-gray-500 hover:text-gray-700'"
+        class="px-2.5 py-1 rounded text-xs font-bold transition" title="Versione di produzione (va in stampa)">Ufficiale</button>
+      <button @click="setEditorMode('theoretical')"
+        :class="editorMode==='theoretical' ? 'bg-amber-500 text-white shadow' : 'text-gray-500 hover:text-gray-700'"
+        class="px-2.5 py-1 rounded text-xs font-bold transition" title="Lavagna per esperimenti — puoi modificare il sideboard">Teorica</button>
+    </div>
+
     <span class="text-xs text-gray-400" x-text="includedMetaDecks().length + ' matchup'"></span>
-    <button @click="addTheoreticalCard()" class="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs">+ Teorica</button>
+
+    <button x-show="editorMode==='theoretical'" @click="addTheoreticalCard()"
+      class="px-2 py-0.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded text-xs font-semibold">+ Carta side</button>
+    <template x-if="editorMode==='theoretical'">
+      <div class="flex items-center gap-1.5 ml-1">
+        <span class="text-xs font-mono"
+              :class="theoSideSize() === 15 ? 'text-green-700 font-bold' : 'text-amber-700'"
+              x-text="'Side: ' + theoSideSize() + '/15'"></span>
+        <button @click="promoteTheoretical()"
+          :disabled="theoSideSize() !== 15"
+          class="px-2 py-0.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-800 rounded text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed transition"
+          title="Sovrascrive la side ufficiale con questa">→ Promuovi su Ufficiale</button>
+      </div>
+    </template>
     <button @click="openAnalysis()" class="px-2 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded text-xs">📊 Analisi</button>
+    <template x-if="editorMode==='official'">
+      <button @click="resetTheoreticalFromOfficial()"
+        class="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded text-xs"
+        title="Sovrascrive la versione teorica con quella ufficiale corrente">↺ Resetta Teorica</button>
+    </template>
+
     <div class="flex items-center gap-1 ml-1 border-l border-gray-200 pl-2">
       <span class="text-xs text-gray-400">Ordine:</span>
       <button @click="editorSort='meta'"
@@ -355,8 +386,7 @@
         class="px-2 py-0.5 border rounded text-xs">A–Z</button>
     </div>
     <div class="ml-auto flex items-center gap-1.5 text-xs">
-      <span class="bg-red-100 text-red-600 px-2 py-0.5 rounded">OUT invalida</span>
-      <span class="bg-blue-50 text-blue-600 px-2 py-0.5 rounded italic">Teorica</span>
+      <span x-show="editorMode==='theoretical'" class="bg-amber-200 text-amber-900 px-2 py-0.5 rounded font-bold">⚠ Modalità teorica — non viene stampata</span>
     </div>
   </div>
 
@@ -427,20 +457,30 @@
                 :colspan="row.type === 'section' ? 2 : 1"
                 :class="labelCellClass(row)">
               <span x-text="row.type === 'section' ? row.label : row.name"></span>
-              <template x-if="row.theoretical">
-                <span class="ml-1">
-                  <span class="text-blue-400 text-xs">(T)</span>
-                  <button @click="removeTheoreticalCard(row.name)" class="text-red-400 hover:text-red-600 ml-0.5 text-xs leading-none">&times;</button>
-                </span>
+              <template x-if="editorMode === 'theoretical' && row.kind === 'in'">
+                <button @click="removeTheoSide(row.name)"
+                  class="text-red-400 hover:text-red-600 ml-1 text-xs leading-none"
+                  title="Rimuovi dal sideboard teorico">&times;</button>
               </template>
             </td>
             <template x-if="row.type !== 'section'">
-              <td class="sticky left-[180px] z-10 bg-inherit px-2 py-1 text-center font-mono text-gray-500" x-text="row.quantity"></td>
+              <td class="sticky left-[180px] z-10 bg-inherit px-1 py-0.5 text-center">
+                <template x-if="editorMode === 'theoretical' && row.kind === 'in'">
+                  <input type="number" min="0" max="20" :value="row.quantity"
+                         @change="updateTheoSideQty(row.name, $event.target.value)"
+                         class="w-10 text-center font-mono text-xs border border-amber-300 rounded bg-amber-50 text-amber-900 py-0.5" />
+                </template>
+                <template x-if="!(editorMode === 'theoretical' && row.kind === 'in')">
+                  <span class="font-mono text-gray-500" x-text="row.quantity"></span>
+                </template>
+              </td>
             </template>
             <template x-for="(metaDeck, cIdx) in includedMetaDecks()" :key="metaDeck.id">
               <td class="p-0" :class="metaDeck.catBorder ? 'border-l-4 border-l-gray-300' : 'border-l border-l-gray-100'">
                 <template x-if="row.type !== 'section'">
-                  <div class="flex items-center justify-center" x-data="cellData(row.kind, row.name, metaDeck.id, row.quantity)">
+                  <div class="flex items-center justify-center"
+                       x-data="cellData(row.kind, row.name, metaDeck.id, row.quantity)"
+                       x-effect="sideboardPlan && syncFromSource()">
                     <input type="number" min="0" :max="row.quantity" x-model.number="val"
                            class="cell-input" :class="val > 0 ? (row.kind === 'out' ? 'has-val-out' : 'has-val-in') : ''"
                            :data-r="row.r" :data-c="cIdx"
@@ -543,14 +583,21 @@
 </div>
 
 <!-- Add theoretical card modal -->
-<div x-show="theoreticalModal.open" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print" @click.self="theoreticalModal.open=false">
+<div x-show="theoreticalModal.open" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print" @click.self="theoreticalModal.open=false">
   <div class="bg-white rounded-lg shadow-xl w-80 p-4">
-    <h2 class="font-bold mb-3">Aggiungi carta teorica</h2>
-    <input x-model="theoreticalModal.card" type="text" placeholder="Nome carta" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2" @keydown.enter="confirmAddTheoretical()" />
-    <input x-model.number="theoreticalModal.qty" type="number" min="1" max="4" placeholder="Quantità" class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3" />
+    <h2 class="font-bold mb-1">Aggiungi carta al sideboard <span class="text-amber-700">(teorico)</span></h2>
+    <p class="text-xs text-gray-400 mb-3">La carta viene validata su Scryfall (nome ufficiale).</p>
+    <input x-model="theoreticalModal.card" type="text" placeholder="es. Lightning Bolt"
+      class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-2"
+      @keydown.enter="confirmAddTheoretical()" autofocus />
+    <input x-model.number="theoreticalModal.qty" type="number" min="1" max="20" placeholder="Quantità"
+      class="w-full border border-gray-300 rounded px-2 py-1 text-sm mb-3" />
+    <div x-show="theoreticalModal.error" class="text-red-500 text-xs mb-2" x-text="theoreticalModal.error"></div>
     <div class="flex gap-2 justify-end">
       <button @click="theoreticalModal.open=false" class="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-50">Annulla</button>
-      <button @click="confirmAddTheoretical()" class="px-3 py-1 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">Aggiungi</button>
+      <button @click="confirmAddTheoretical()" :disabled="theoreticalModal.loading"
+        class="px-3 py-1 bg-amber-500 text-white rounded text-sm hover:bg-amber-600 disabled:opacity-50"
+        x-text="theoreticalModal.loading ? 'Verifico...' : 'Aggiungi'"></button>
     </div>
   </div>
 </div>
@@ -603,6 +650,8 @@
   <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[82vh] flex flex-col overflow-hidden">
     <div class="flex items-center gap-3 px-5 py-3 border-b border-gray-100 shrink-0">
       <h2 class="font-bold text-base">📊 Analisi Sideboard</h2>
+      <span x-show="analysisModal.data && analysisModal.data.mode === 'theoretical'"
+            class="text-[10px] bg-amber-100 text-amber-800 font-bold uppercase tracking-widest px-1.5 py-0.5 rounded">teorica</span>
       <span class="text-xs text-gray-400" x-show="analysisModal.data"
             x-text="'su ' + (analysisModal.data ? analysisModal.data.total_matchups : 0) + ' matchup pianificati'"></span>
       <button @click="analysisModal.open=false" class="ml-auto text-gray-400 hover:text-gray-700 text-xl leading-none">&times;</button>
@@ -688,7 +737,8 @@ function app() {
     activeDeckId: null,
     activeDeckName: '',
     sideboardPlan: null,
-    theoreticalModal: { open: false, card: '', qty: 1 },
+    editorMode: 'official',  // 'official' | 'theoretical'
+    theoreticalModal: { open: false, card: '', qty: 1, loading: false, error: '' },
     editorSort: 'meta',
     analysisModal: { open: false, loading: false, data: null },
 
@@ -790,7 +840,7 @@ function app() {
       if (sb.length) {
         rows.push({ type: 'section', label: 'Sideboard', key: 'sec-sideboard' });
         for (const c of sb) {
-          rows.push({ type: 'card', kind: 'in', name: c.name, quantity: c.quantity, even: c.rowEven, theoretical: c.theoretical, r: r++, key: 'in-' + c.name });
+          rows.push({ type: 'card', kind: 'in', name: c.name, quantity: c.quantity, even: c.rowEven, r: r++, key: 'in-' + c.name });
         }
       }
       return rows;
@@ -803,7 +853,7 @@ function app() {
           : 'bg-gray-300 select-none';
       }
       if (row.kind === 'in') {
-        const base = row.theoretical ? 'bg-blue-50/80 italic' : (row.even ? 'bg-white' : 'bg-gray-50/60');
+        const base = row.even ? 'bg-white' : 'bg-gray-50/60';
         return base + ' hover:bg-green-50 transition-colors';
       }
       const base = this.hasStaleOut(row.name) ? 'bg-red-50' : (row.even ? 'bg-white' : 'bg-gray-50/60');
@@ -844,7 +894,7 @@ function app() {
 
     async openAnalysis() {
       this.analysisModal = { open: true, loading: true, data: null };
-      const r = await fetch(`/api/sideboards/${this.activeDeckId}/analysis`);
+      const r = await fetch(`/api/sideboards/${this.activeDeckId}/analysis?mode=${this.editorMode}`);
       this.analysisModal.data = await r.json();
       this.analysisModal.loading = false;
     },
@@ -1023,12 +1073,85 @@ function app() {
     async openEditor(deck) {
       this.activeDeckId = deck.id;
       this.activeDeckName = deck.name;
+      this.editorMode = 'official';
       this.view = 'editor';
-      const r = await fetch(`/api/sideboards/${deck.id}`);
+      await this.loadEditorData();
+    },
+
+    async loadEditorData() {
+      const r = await fetch(`/api/sideboards/${this.activeDeckId}?mode=${this.editorMode}`);
       this.sideboardPlan = await r.json();
-      // Also load print data
-      const r2 = await fetch(`/api/sideboards/${deck.id}/print`);
+      // Print data is always official (the production view)
+      const r2 = await fetch(`/api/sideboards/${this.activeDeckId}/print`);
       this.printData = await r2.json();
+    },
+
+    async setEditorMode(mode) {
+      if (this.editorMode === mode) return;
+      // Force any focused cell to commit before the mode changes
+      if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+        document.activeElement.blur();
+      }
+      this.editorMode = mode;
+      await this.loadEditorData();
+    },
+
+    async updateTheoSideQty(cardName, qty) {
+      const q = Math.max(0, parseInt(qty) || 0);
+      await fetch(`/api/sideboards/${this.activeDeckId}/theoretical-side`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ card: cardName, quantity: q }),
+      });
+      await this.loadEditorData();
+    },
+
+    async removeTheoSide(cardName) {
+      if (!confirm('Rimuovere "' + cardName + '" dal sideboard teorico?')) return;
+      await fetch(`/api/sideboards/${this.activeDeckId}/theoretical-side/${encodeURIComponent(cardName)}`, {
+        method: 'DELETE',
+      });
+      await this.loadEditorData();
+    },
+
+    theoSideSize() {
+      if (!this.sideboardPlan?.deck?.sideboard) return 0;
+      return this.sideboardPlan.deck.sideboard.reduce((s, c) => s + (c.quantity || 0), 0);
+    },
+
+    async promoteTheoretical() {
+      const total = this.theoSideSize();
+      if (total !== 15) {
+        this.showToast('La side teorica ha ' + total + ' carte: servono esattamente 15.');
+        return;
+      }
+      const msg = `Confermi? Sovrascriverai la versione UFFICIALE con quella teorica:\n\n` +
+                  `• Sideboard: ${total} carte\n` +
+                  `• Tutti i piani matchup verranno copiati su ufficiale\n\n` +
+                  `Nota: una futura sincronizzazione da Archidekt potrebbe sovrascrivere la side.`;
+      if (!confirm(msg)) return;
+      const r = await fetch(`/api/sideboards/${this.activeDeckId}/promote-theoretical`, { method: 'POST' });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        this.showToast('Errore: ' + (e.detail || r.status));
+        return;
+      }
+      const data = await r.json();
+      this.showToast(`Promossa: ${data.total} carte, ${data.plans_promoted || 0} matchup`);
+      await this.loadEditorData();
+    },
+
+    async resetTheoreticalFromOfficial() {
+      if (!confirm('Confermi? La versione teorica (sideboard + piani matchup) verrà sovrascritta con quella ufficiale corrente.')) return;
+      const r = await fetch(`/api/sideboards/${this.activeDeckId}/reset-theoretical`, { method: 'POST' });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        this.showToast('Errore: ' + (e.detail || r.status));
+        return;
+      }
+      const data = await r.json();
+      this.showToast(`Teorica resettata: ${data.total} carte, ${data.plans_copied} matchup`);
+      await this.loadEditorData();
     },
 
     includedMetaDecks() {
@@ -1067,9 +1190,8 @@ function app() {
 
     allSideboardCards() {
       if (!this.sideboardPlan) return [];
-      const real = (this.sideboardPlan.deck?.sideboard || []).map(c => ({ name: c.name, quantity: c.quantity, theoretical: false }));
-      const theoretical = (this.sideboardPlan.theoretical_pool || []).map(c => ({ name: c.card || c.name, quantity: c.quantity, theoretical: true }));
-      return [...real, ...theoretical]
+      const cards = (this.sideboardPlan.deck?.sideboard || []).map(c => ({ name: c.name, quantity: c.quantity }));
+      return cards
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
         .map((c, i) => ({ ...c, rowEven: i % 2 === 0 }));
     },
@@ -1082,7 +1204,9 @@ function app() {
       return entry ? entry.quantity : 0;
     },
 
-    async saveVal(type, cardName, metaDeckId, qty) {
+    async saveVal(type, cardName, metaDeckId, qty, mode) {
+      // mode is captured by the caller before any await; fall back to current only if missing
+      if (mode === undefined) mode = this.editorMode;
       const plans = this.sideboardPlan?.plans || {};
       const plan = JSON.parse(JSON.stringify(plans[metaDeckId] || { out: [], in: [], notes: '' }));
       const list = plan[type] || [];
@@ -1095,17 +1219,21 @@ function app() {
       }
       plan[type] = list;
 
-      await fetch(`/api/sideboards/${this.activeDeckId}/${encodeURIComponent(metaDeckId)}`, {
+      await fetch(`/api/sideboards/${this.activeDeckId}/${encodeURIComponent(metaDeckId)}?mode=${mode}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(plan),
       });
 
-      // Update local state
-      if (!this.sideboardPlan.plans[metaDeckId]) {
-        this.sideboardPlan.plans[metaDeckId] = { out: [], in: [], notes: '' };
-      }
-      this.sideboardPlan.plans[metaDeckId] = plan;
+      // Only update local state if we're still in the same mode; otherwise the
+      // mode switch already loaded fresh data via loadEditorData().
+      if (this.editorMode !== mode) return;
+
+      // Replace sideboardPlan with a new object so Alpine detects the change reactively
+      this.sideboardPlan = {
+        ...this.sideboardPlan,
+        plans: { ...this.sideboardPlan.plans, [metaDeckId]: plan }
+      };
 
       // Refresh print data
       const r = await fetch(`/api/sideboards/${this.activeDeckId}/print`);
@@ -1127,27 +1255,36 @@ function app() {
     },
 
     addTheoreticalCard() {
-      this.theoreticalModal = { open: true, card: '', qty: 1 };
+      this.theoreticalModal = { open: true, card: '', qty: 1, loading: false, error: '' };
     },
 
     async confirmAddTheoretical() {
-      const { card, qty } = this.theoreticalModal;
-      if (!card.trim()) return;
-      await fetch(`/api/sideboards/${this.activeDeckId}/theoretical`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card: card.trim(), quantity: qty }),
-      });
-      this.theoreticalModal.open = false;
-      // Refresh plan
-      const r = await fetch(`/api/sideboards/${this.activeDeckId}`);
-      this.sideboardPlan = await r.json();
-    },
-
-    async removeTheoreticalCard(cardName) {
-      await fetch(`/api/sideboards/${this.activeDeckId}/theoretical/${encodeURIComponent(cardName)}`, { method: 'DELETE' });
-      const r = await fetch(`/api/sideboards/${this.activeDeckId}`);
-      this.sideboardPlan = await r.json();
+      const name = (this.theoreticalModal.card || '').trim();
+      const qty = Math.max(1, parseInt(this.theoreticalModal.qty) || 1);
+      if (!name) return;
+      this.theoreticalModal.loading = true;
+      this.theoreticalModal.error = '';
+      try {
+        // Validate via Scryfall (fuzzy) to get the canonical card name
+        const r = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`);
+        if (!r.ok) throw new Error('Carta non trovata su Scryfall');
+        const card = await r.json();
+        const canonical = card.name;
+        // Upsert into theoretical sideboard
+        const r2 = await fetch(`/api/sideboards/${this.activeDeckId}/theoretical-side`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ card: canonical, quantity: qty }),
+        });
+        if (!r2.ok) throw new Error('Errore salvataggio');
+        this.theoreticalModal.open = false;
+        await this.loadEditorData();
+        this.showToast('Aggiunta: ' + canonical);
+      } catch (e) {
+        this.theoreticalModal.error = e.message;
+      } finally {
+        this.theoreticalModal.loading = false;
+      }
     },
 
     fmtDate(iso) {
@@ -1174,8 +1311,11 @@ function cellData(type, cardName, metaDeckId, maxVal) {
     init() {
       const app = this.getAppData();
       if (app) this.val = Math.min(app.getVal(type, cardName, metaDeckId), this.maxVal);
-      // Live clamp on any change to val
+      // Clamp only when NOT focused — clamping while the user types causes
+      // parseFloat("") → NaN → reset to 0, making values vanish mid-edit.
       this.$watch('val', (newVal) => {
+        const inp = this.$el.querySelector ? this.$el.querySelector('input') : this.$el;
+        if (inp && document.activeElement === inp) return;
         if (newVal === null || newVal === '' || isNaN(newVal) || newVal < 0) {
           this.val = 0;
         } else if (newVal > this.maxVal) {
@@ -1203,7 +1343,26 @@ function cellData(type, cardName, metaDeckId, maxVal) {
       if (v > this.maxVal) v = this.maxVal;
       this.val = v;
       const app = this.getAppData();
-      if (app) await app.saveVal(this.type, this.cardName, this.metaDeckId, v);
+      if (app) {
+        // Capture mode NOW (before any await) so a tab switch mid-save
+        // can't redirect this write to the wrong mode.
+        const mode = app.editorMode;
+        await app.saveVal(this.type, this.cardName, this.metaDeckId, v, mode);
+      }
+    },
+
+    // Called via x-effect whenever the parent sideboardPlan reference changes
+    // (e.g. on mode switch or after another cell saves). Alpine reuses DOM
+    // elements for matching keys, so without this the val stays stuck on the
+    // previous mode's value.  Skip if the input is focused — we never want to
+    // clobber a value the user is actively typing.
+    syncFromSource() {
+      const app = this.getAppData();
+      if (!app) return;
+      const inp = this.$el.querySelector ? this.$el.querySelector('input') : this.$el;
+      if (inp && document.activeElement === inp) return;
+      const fresh = Math.min(app.getVal(this.type, this.cardName, this.metaDeckId), this.maxVal);
+      if (fresh !== this.val) this.val = fresh;
     },
   };
 }
