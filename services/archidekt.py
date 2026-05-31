@@ -4,22 +4,21 @@ import json
 import re
 import httpx
 
-FOLDER_URL = "https://archidekt.com/folders/1123156"
 API_BASE = "https://archidekt.com/api/decks"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
 
-async def fetch_folder_deck_ids() -> list[dict]:
+async def fetch_folder_deck_ids(folder_id: str) -> list[dict]:
     """Scrape folder page and return [{id, name, image_url}] for all decks."""
+    url = f"https://archidekt.com/folders/{folder_id}"
     async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
-        r = await client.get(FOLDER_URL, headers=HEADERS)
+        r = await client.get(url, headers=HEADERS)
     html = r.text
 
     match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
     if match:
         try:
             next_data = json.loads(match.group(1))
-            # Correct path: props.pageProps.redux.folders.rootFolder.decks
             root_folder = (
                 next_data.get("props", {})
                 .get("pageProps", {})
@@ -88,9 +87,9 @@ async def sync_deck(deck_id: int) -> dict:
     return {"main_deck": list(main_map.values()), "sideboard": list(side_map.values())}
 
 
-async def sync_all_decks(existing_decks: list[dict]) -> list[dict]:
+async def sync_all_decks(existing_decks: list[dict], folder_id: str) -> list[dict]:
     """Sync all decks from the folder, preserving existing data."""
-    folder_decks = await fetch_folder_deck_ids()
+    folder_decks = await fetch_folder_deck_ids(folder_id)
     existing_by_id = {d.get("archidekt_id"): d for d in existing_decks if d.get("archidekt_id")}
 
     result = []

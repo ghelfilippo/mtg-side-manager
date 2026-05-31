@@ -2,10 +2,17 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from auth import ensure_default_admin
 from routers import meta, my_decks, sideboards
+from routers import auth_router, admin
 
 app = FastAPI(title="MTG Sideboard Manager")
 
+# Ensure at least one admin user exists on startup
+ensure_default_admin()
+
+app.include_router(auth_router.router, prefix="/api/auth", tags=["auth"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(meta.router, prefix="/api/meta", tags=["meta"])
 app.include_router(my_decks.router, prefix="/api/decks", tags=["decks"])
 app.include_router(sideboards.router, prefix="/api/sideboards", tags=["sideboards"])
@@ -18,6 +25,11 @@ async def import_xlsx(path: str = "side.xlsx"):
 
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/login")
+def login_page():
+    return FileResponse("static/login.html")
 
 
 @app.get("/")
